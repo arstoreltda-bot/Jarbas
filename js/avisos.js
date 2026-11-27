@@ -48,8 +48,8 @@
     if (m <= 0) quando = c.diaInteiro ? "Hoje" : "Começa agora";
     else if (m < 1) quando = `Começa em ${Math.round(m * 60)} segundos`;
     else if (m < 60) quando = `Começa em ${Math.round(m)} minuto${Math.round(m) > 1 ? "s" : ""}`;
-    else if (m < 1440) { const h = Math.floor(m / 60), r = Math.round(m % 60); quando = `Começa em ${h} hora${h > 1 ? "s" : ""}${r ? ` e ${r} min` : ""}`; }
-    else quando = J.rotuloDiaLongo(c.data);
+    else if (m < 720) { const h = Math.floor(m / 60), r = Math.round(m % 60); quando = `Começa em ${h} hora${h > 1 ? "s" : ""}${r ? ` e ${r} min` : ""}`; }
+    else quando = "Lembrete";
     return { titulo: `${c.titulo}`, texto: `${quando} · ${J.rotuloDia(c.data).replace(" · ", ", ")}, ${hora}${c.local ? " · " + c.local : ""}` };
   }
 

@@ -116,7 +116,7 @@ window.J = window.J || {};
     const l = c.lembrete == null ? [60] : c.lembrete === -1 ? [] : J.listaLembretes(c.lembrete);
     if (!l.length) return "sem aviso";
     const inicio = J.instante(c.data, c.diaInteiro ? "08:00" : c.inicio);
-    const redondo = (m) => m === 0 || (Number.isInteger(m) && (m < 60 || m % 15 === 0));
+    const redondo = (m) => m === 0 || (Number.isInteger(m) && (m < 60 || (m < 1440 && m % 15 === 0) || m % 1440 === 0));
     const partes = l.map((m) => {
       if (redondo(m)) return J.rotuloLembrete(m).replace(/^aviso /, "");
       const t = new Date(inicio - m * 60000);
