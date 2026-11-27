@@ -2,7 +2,7 @@
 "use strict";
 (function (J) {
   const $ = J.$, el = J.el, V = J.voz, G = J.gemini, A = J.agenda;
-  const VERSAO = "1.1.3";
+  const VERSAO = "1.1.4";
   const chat = $("chat"), entrada = $("entrada"), btnAcao = $("btn-acao");
   const ehIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const instalado = () => window.navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
@@ -252,9 +252,16 @@
   function enviarTexto(t) { t = String(t || "").trim(); if (!t) return; if (escuta) escuta.cancelar(); if (ocupado) { J.ui.toast("Um instante, senhor…"); return; } V.destravar(); processar({ texto: t }); }
 
   /* ================= microfone ================= */
-  let escuta = null;
+  let escuta = null, interrompeu = false;
   async function ouvir({ auto = false, nova = false } = {}) {
     if (escuta) { escuta.parar(); return; }
+    if (auto && interrompeu) return;
+    /* o senhor tocou no microfone enquanto eu falava: paro de falar e já começo a ouvir */
+    if (ocupado && !auto && V.falando()) {
+      interrompeu = true; V.calar();
+      for (let i = 0; i < 40 && ocupado; i++) await J.sleep(50);
+      interrompeu = false;
+    }
     if (ocupado) return;
     V.destravar(); V.calar();
     if (!G.temChave()) { if (!auto) { await dizer("Para eu ouvir sua voz, preciso da minha chave do Google, senhor. Vamos configurá-la?"); mostrarInicio("chave"); } return; }
@@ -284,7 +291,7 @@
     processar({ audio: res.wav, duracao: res.duracao });
   }
   /* conversa contínua: depois de uma pergunta do Jarbas, o microfone abre sozinho */
-  function ouvirDeNovo() { if (J.store.get("voz.continua", true) && V.ligada() && document.visibilityState === "visible") setTimeout(() => ouvir({ auto: true }), 250); }
+  function ouvirDeNovo() { if (interrompeu) return; if (J.store.get("voz.continua", true) && V.ligada() && document.visibilityState === "visible") setTimeout(() => ouvir({ auto: true }), 250); }
   $("escuta-orbe").onclick = () => escuta && escuta.parar();
   $("escuta-enviar").onclick = () => escuta && escuta.parar();
   $("escuta-cancelar").onclick = () => escuta && escuta.cancelar();

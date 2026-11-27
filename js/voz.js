@@ -8,7 +8,7 @@
   let gravando = false;
   V.destravar = function () {
     try {
-      if (!gravando && !micStream) sessao("playback"); // toca mesmo com o iPhone no modo silencioso (iOS 17+)
+      if (!gravando && !micStream && !tocando) sessao("playback"); // (nunca no meio de uma fala: trocar a sessão de áudio corta o som) toca mesmo com o iPhone no modo silencioso (iOS 17+)
       const A = window.AudioContext || window.webkitAudioContext;
       if (!A) return null;
       if (!ctx) ctx = new A();
@@ -21,7 +21,7 @@
     return ctx;
   };
   V.ctx = () => ctx || V.destravar();
-  function sessao(tipo) { try { if (navigator.audioSession) navigator.audioSession.type = tipo; } catch (e) {} }
+  function sessao(tipo) { try { if (navigator.audioSession && navigator.audioSession.type !== tipo) navigator.audioSession.type = tipo; } catch (e) {} }
 
   /* ================= OUVIR ================= */
   V.microfoneDisponivel = () => !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
