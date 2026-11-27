@@ -215,8 +215,12 @@
       const ac = V.ctx(); if (!ac) return res();
       const buf = ac.createBuffer(1, pcm.length, taxa); const ch = buf.getChannelData(0);
       for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 32768;
+      /* suaviza começo e fim (evita estalo/chiado no final) */
+      const fi = Math.min(ch.length, Math.round(taxa * 0.01)), fo = Math.min(ch.length, Math.round(taxa * 0.12));
+      for (let i = 0; i < fi; i++) ch[i] *= i / fi;
+      for (let i = 0; i < fo; i++) ch[ch.length - 1 - i] *= i / fo;
       const src = ac.createBufferSource(); src.buffer = buf;
-      const ganho = ac.createGain(); ganho.gain.value = 1.15; src.connect(ganho).connect(ac.destination);
+      const ganho = ac.createGain(); ganho.gain.value = 1.0; src.connect(ganho).connect(ac.destination);
       src.onended = () => res();
       if (meu !== filaId) return res();
       tocando = src; src.start();
