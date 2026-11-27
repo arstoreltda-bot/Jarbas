@@ -2,7 +2,7 @@
 "use strict";
 (function (J) {
   const $ = J.$, el = J.el, V = J.voz, G = J.gemini, A = J.agenda;
-  const VERSAO = "1.1.6";
+  const VERSAO = "1.1.7";
   const chat = $("chat"), entrada = $("entrada"), btnAcao = $("btn-acao");
   const ehIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const instalado = () => window.navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
@@ -474,6 +474,7 @@
 
     const app = el("div", { class: "grupo" },
       linha("Instalado na tela de início", instalado() ? "Funcionando como aplicativo" : "Abra no Safari e adicione à Tela de Início", el("span", { class: "pilula" + (instalado() ? "" : " nao"), text: instalado() ? "Sim" : "Não" })),
+      (J.store.get("voz.diag", []).length ? linha("Diagnóstico da voz", J.store.get("voz.diag", []).slice(-3).join(" · "), el("button", { class: "btn", type: "button", text: "Limpar", onclick: () => { J.store.set("voz.diag", []); renderAjustes(); } })) : null),
       instalado() ? null : linha("Como instalar", null, el("button", { class: "btn", type: "button", text: "Ver", onclick: () => mostrarInicio("instalar") })));
 
     raiz.replaceChildren(

@@ -7,11 +7,17 @@
   /* O iPhone só libera o áudio depois de um toque: chamamos isto em todo toque. */
   let gravando = false;
   V.destravar = function () {
+    /* no meio de uma fala não mexe em nada: qualquer ajuste de áudio pode cortar a voz */
+    if (tocando && ctx && ctx.state === "running") return ctx;
     try {
       if (!gravando && !micStream && !tocando) sessao("playback"); // (nunca no meio de uma fala: trocar a sessão de áudio corta o som) toca mesmo com o iPhone no modo silencioso (iOS 17+)
       const A = window.AudioContext || window.webkitAudioContext;
       if (!A) return null;
-      if (!ctx) ctx = new A();
+      if (!ctx) {
+        ctx = new A();
+        /* se o iPhone suspender o som no meio de uma fala (toque, rolagem), retoma sozinho */
+        ctx.onstatechange = () => { if (tocando && tocando.buffer && ctx.state !== "running" && ctx.state !== "closed") { diag("ctx " + ctx.state); ctx.resume().catch(() => {}); } };
+      }
       if (ctx.state === "suspended" || ctx.state === "interrupted") ctx.resume();
       if (window.speechSynthesis && !V._sintDestravado) {
         V._sintDestravado = true;
@@ -21,6 +27,7 @@
     return ctx;
   };
   V.ctx = () => ctx || V.destravar();
+  function diag(t) { try { const l = J.store.get("voz.diag", []); l.push(new Date().toISOString().slice(11, 19) + " " + t); J.store.set("voz.diag", l.slice(-20)); } catch (e) {} }
   function sessao(tipo) { try { if (navigator.audioSession && navigator.audioSession.type !== tipo) navigator.audioSession.type = tipo; } catch (e) {} }
 
   /* ================= OUVIR ================= */
@@ -247,12 +254,29 @@
         const u = new SpeechSynthesisUtterance(t); u.lang = "pt-BR";
         const v = escolherVozIphone(); if (v) u.voice = v;
         const es = ESTILOS[J.store.get("voz.estilo", "ia")] || ESTILOS.ia; u.rate = es.rate; u.pitch = es.pitch;
-        let feito = false; const ok = () => { if (!feito) { feito = true; res(); } };
-        u.onend = ok; u.onerror = ok;
-        setTimeout(ok, 2500 + t.length * 85); // o iPhone às vezes não avisa que terminou
+        let feito = false, pos = 0, tentativas = 0, vigia = null;
+        const ok = () => { if (!feito) { feito = true; clearInterval(vigia); res(); } };
+        let limite = setTimeout(ok, 2500 + t.length * 85); // o iPhone às vezes não avisa que terminou
+        const montar = (texto) => {
+          const x = new SpeechSynthesisUtterance(texto); x.lang = u.lang; if (u.voice) x.voice = u.voice; x.rate = u.rate; x.pitch = u.pitch;
+          const base = t.length - texto.length;
+          x.onboundary = (e) => { if (e.charIndex != null) pos = base + e.charIndex; };
+          x.onend = ok;
+          x.onerror = (e) => {
+            /* interrompida sem o senhor pedir (toque, rolagem): continua de onde parou */
+            if (meu === filaId && !feito && tentativas < 3 && e && (e.error === "interrupted" || e.error === "canceled")) {
+              tentativas++; diag("fala " + e.error + " em " + pos);
+              const resto = t.slice(pos).replace(/^[\s.,;:!?]+/, "");
+              if (resto.trim().length > 2) { clearTimeout(limite); limite = setTimeout(ok, 2500 + resto.length * 85); speechSynthesis.speak(montar(resto)); return; }
+            }
+            ok();
+          };
+          return x;
+        };
         if (meu !== filaId) return res();
-        tocando = { stop: () => speechSynthesis.cancel() };
-        speechSynthesis.speak(u);
+        tocando = { stop: () => { feito = true; clearInterval(vigia); speechSynthesis.cancel(); res(); } };
+        speechSynthesis.speak(montar(t));
+        vigia = setInterval(() => { if (meu !== filaId || feito) return clearInterval(vigia); if (speechSynthesis.paused) { diag("fala pausada"); speechSynthesis.resume(); } }, 400);
       } catch (e) { res(); }
     });
   }
