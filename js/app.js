@@ -2,7 +2,7 @@
 "use strict";
 (function (J) {
   const $ = J.$, el = J.el, V = J.voz, G = J.gemini, A = J.agenda;
-  const VERSAO = "1.1.9";
+  const VERSAO = "1.1.10";
   const chat = $("chat"), entrada = $("entrada"), btnAcao = $("btn-acao");
   const ehIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const instalado = () => window.navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
@@ -44,7 +44,7 @@
       saudarAgora = false;
       const s = J.saudacao();
       texto = String(texto || "").replace(/^(bom dia|boa tarde|boa noite)[,!.]?\s*(senhor[,!.]?)?\s*/i, "");
-      texto = /^(sim|às suas ordens|pronto|estou aqui|sistemas)/i.test(texto) ? `${s}, senhor. ${texto.replace(/^sim, senhor\.\s*/i, "")}`.trim() : `${s}, senhor. ${texto}`.trim();
+      texto = /^amém/i.test(texto) ? texto.replace(/^(amém[,!.]?\s*(senhor[,!.]?)?)\s*/i, () => `Amém! ${s}, senhor. `).trim() : /^(sim|às suas ordens|pronto|estou aqui|sistemas)/i.test(texto) ? `${s}, senhor. ${texto.replace(/^sim, senhor\.\s*/i, "")}`.trim() : `${s}, senhor. ${texto}`.trim();
     }
     bolha("jarbas", texto);
     if (guardar) { historico.push({ de: "jarbas", texto, t: Date.now() }); salvarHist(); }
@@ -236,6 +236,7 @@
     try {
       // atalhos instantâneos para respostas simples digitadas
       if (ent.texto && pendente) { const l = J.cerebro.local(ent.texto, pendente); if (["confirmar", "recusar", "lembrete"].includes(l.acao)) r = l; }
+      if (!r && ent.texto && /^\s*(jarbas[,\s]*)?(a\s+)?paz\s+(de\s+deus|do\s+senhor)[\s,]*(jarbas)?[\s!?.,]*$/i.test(ent.texto)) r = { acao: "conversa", resposta: variar(["Amém, senhor.", "Amém, senhor. Em que posso ajudá-lo?", "Amém, senhor. Às suas ordens."], "amem") };
       if (!r && ent.texto && /^\s*(oi|olá|ola|ei|ô)?[,\s]*jarbas[\s!?.,]*$/i.test(ent.texto)) r = { acao: "conversa", resposta: variar(PRONTO, "pronto") };
       if (!r) {
         try { r = await J.cerebro.entender(ent, pendente, historico); }
