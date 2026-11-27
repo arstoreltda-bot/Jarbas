@@ -2,7 +2,7 @@
 "use strict";
 (function (J) {
   const $ = J.$, el = J.el, V = J.voz, G = J.gemini, A = J.agenda, T = J.tarefas;
-  const VERSAO = "1.2.0";
+  const VERSAO = "1.3.0";
   const chat = $("chat"), entrada = $("entrada"), btnAcao = $("btn-acao");
   const ehIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const instalado = () => window.navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
@@ -135,6 +135,8 @@
   function confirmar() {
     const p = pendente; if (!p) return dizer(variar(PRONTO, "pronto"));
     pendente = null;
+    if (p.tipo === "apagarLista") { const l = T.lista_(p.id); T.removerLista(p.id); encerrarCartao(p, "Apagada ✓", true); return dizer(`Pronto, senhor. Apaguei a lista ${l ? l.nome : ""}.`); }
+    if (p.tipo === "apagarContato") { J.contatos.remover(p.id); encerrarCartao(p, "Apagado ✓", true); return dizer("Contato apagado, senhor."); }
     if (p.tipo === "apagarTarefas") { p.ids.forEach((i) => T.remover(i)); encerrarCartao(p, p.ids.length === 1 ? "Apagada ✓" : `${p.ids.length} apagadas ✓`, true); J.vibrar(15); return dizer(p.ids.length === 1 ? "Apagada, senhor." : `Pronto, senhor. Apaguei as ${p.ids.length} tarefas.`); }
     if (p.tipo === "cancelar" && p.ids) { p.ids.forEach((i) => A.remover(i)); encerrarCartao(p, `${p.ids.length} desmarcados ✓`, true); J.vibrar(15); return dizer(`Pronto, senhor. Desmarquei os ${p.ids.length} compromissos.`); }
     if (p.tipo === "cancelar") { A.remover(p.id); encerrarCartao(p, "Desmarcado ✓", true); return dizer("Desmarcado, senhor."); }
@@ -151,8 +153,8 @@
   }
   function recusar() {
     const p = pendente; if (!p) return dizer("Perfeitamente, senhor.");
-    pendente = null; encerrarCartao(p, p.tipo === "cancelar" || p.tipo === "apagarTarefas" ? "Mantido" : "Não marcado", false);
-    return dizer(p.tipo === "cancelar" || p.tipo === "apagarTarefas" ? "Perfeitamente, senhor. Deixei como estava." : "Tudo bem, senhor, não marquei.");
+    pendente = null; encerrarCartao(p, ["cancelar", "apagarTarefas", "apagarLista", "apagarContato"].includes(p.tipo) ? "Mantido" : "Não marcado", false);
+    return dizer(["cancelar", "apagarTarefas", "apagarLista", "apagarContato"].includes(p.tipo) ? "Perfeitamente, senhor. Deixei como estava." : "Tudo bem, senhor, não marquei.");
   }
 
   /* "daqui a 30 s" e "às 22h50" -> minutos antes do início do compromisso */
@@ -188,7 +190,7 @@
 
   function tarefasAlvo(r, status) {
     const ids = [...new Set([].concat(Array.isArray(r.ids) ? r.ids : [], r.id ? [r.id] : []))];
-    if (r.filtro && (r.filtro.de || r.filtro.status || r.filtro.termo || r.filtro.atrasadas || r.filtro.semPrazo)) return T.filtrar(Object.assign({ status }, r.filtro));
+    if (r.filtro && (r.filtro.de || r.filtro.status || r.filtro.termo || r.filtro.atrasadas || r.filtro.semPrazo || r.filtro.lista)) return T.filtrar(Object.assign({ status }, r.filtro));
     return ids.map((i) => T.obter(i)).filter(Boolean);
   }
   function pedirApagarTarefas(alvos, porVoz) {
@@ -248,24 +250,111 @@
         if (r.alarme === true || /alarme|despert/i.test(r.transcricao || "")) p.c.alarme = true;
         return pedirConfirmacao(p.c, p.id, porVoz);
       }
-      case "tarefa_criar": {
-        const lista = (Array.isArray(r.tarefas) ? r.tarefas : r.tarefa ? [r.tarefa] : []).map((t) => T.normalizar(t)).filter(T.valida);
-        if (!lista.length) { await dizer(resp || "Qual é a tarefa, senhor?"); return porVoz && ouvirDeNovo(); }
-        const feitas = lista.map((t) => T.salvar(t));
+      case "tarefa_criar":
+      case "lista_criar": {
+        let brutas = Array.isArray(r.tarefas) ? r.tarefas : r.tarefa ? [r.tarefa] : [];
+        let listaNova = null, listaCriada = false;
+        if (r.lista && r.lista.nome) { const x = T.listaOuCria(r.lista.nome, { tipo: r.lista.tipo, data: r.lista.data, hora: r.lista.hora, lembrete: r.lista.lembrete, repetir: r.lista.repetir }); listaNova = x.l; listaCriada = x.criada; }
+        const criadas = {}; // nome -> lista criada agora
+        const itens = brutas.map((t) => {
+          let l = listaNova;
+          if (t.lista) { const x = T.listaOuCria(t.lista); l = x.l; if (x.criada) { criadas[l.id] = l; listaCriada = true; } }
+          let dados = Object.assign({}, t, { lista: l ? l.id : "" });
+          if (l && l.tipo === "compras" && !t.qtd) { const q = T.separarQtd(t.titulo); dados.titulo = q.titulo; dados.qtd = q.qtd; }
+          return T.normalizar(dados);
+        }).filter(T.valida);
+        if (listaNova) criadas[listaNova.id] = listaNova;
+        if (!itens.length) {
+          if (listaNova) { T.mostrarLista(listaNova.id); const info = T.rotuloLista(listaNova); return dizer(`${listaCriada ? "Criei a lista" : "A lista"} ${listaNova.nome}${info ? " (" + info.replace(" · 🔔", ", com aviso") + ")" : ""}${listaCriada ? "" : " está pronta"}, senhor. O que devo colocar nela?`).then(() => porVoz && ouvirDeNovo()); }
+          await dizer(resp || "Qual é a tarefa, senhor?"); return porVoz && ouvirDeNovo();
+        }
+        const feitas = itens.map((t) => T.salvar(t));
         J.vibrar(15);
+        const listasUsadas = [...new Set(feitas.map((t) => t.lista || ""))];
+        if (listasUsadas.length === 1) T.mostrarLista(listasUsadas[0]);
+        const nomeL = (id) => (T.lista_(id) || T.GERAL).nome;
+        const ondeTxt = listasUsadas.length === 1 && listasUsadas[0] ? ` na lista ${nomeL(listasUsadas[0])}` : "";
+        const criouTxt = Object.keys(criadas).length ? `Criei a lista ${Object.values(criadas).map((l) => l.nome).join(" e a lista ")}. ` : "";
         if (feitas.length === 1) {
           const t = feitas[0];
-          let f = `Anotado, senhor: ${t.titulo}${t.prazo ? ", para " + T.rotuloPrazo(t, true) : ""}.`;
+          let f = `${criouTxt}Anotado, senhor: ${T.textoItem(t)}${ondeTxt}${t.prazo ? ", para " + T.rotuloPrazo(t, true) : ""}.`;
           if (t.prazo && t.prazo >= J.agora().data && t.lembrete !== -1) f += t.hora ? (t.lembrete == null || J.listaLembretes(t.lembrete).join() === "0" ? " Aviso o senhor na hora." : ` Aviso o senhor ${J.rotuloLembrete(t.lembrete).replace(/^avisos? /, "")}.`) : " Aviso o senhor às 9h do dia.";
           return dizer(f);
         }
-        return dizer(`Anotei ${feitas.length} tarefas: ${feitas.map((t) => t.titulo).join(", ")}.`);
+        const compras = listasUsadas.length === 1 && (T.lista_(listasUsadas[0]) || {}).tipo === "compras";
+        return dizer(`${criouTxt}Anotei ${feitas.length} ${compras ? "itens" : "tarefas"}${ondeTxt}: ${feitas.map((t) => T.textoItem(t)).join(", ")}.`);
+      }
+      case "lista_editar": {
+        const l = T.lista_(r.id) || (r.lista && r.lista.nomeAtual ? T.acharLista(r.lista.nomeAtual) : null);
+        if (!l || !l.id || !r.lista) { await dizer(resp || "Qual lista o senhor deseja mudar?"); return porVoz && ouvirDeNovo(); }
+        const nova = T.alterarLista(l.id, r.lista); T.mostrarLista(nova.id);
+        const info = T.rotuloLista(nova);
+        return dizer(`Pronto, senhor. Lista ${nova.nome}${info ? ": " + info.replace(" · 🔔", ", com aviso") : ""}.`);
+      }
+      case "lista_apagar": {
+        const l = T.lista_(r.id) || (r.lista && r.lista.nome ? T.acharLista(r.lista.nome) : null);
+        if (!l || !l.id) { await dizer(resp || "Qual lista o senhor deseja apagar?"); return porVoz && ouvirDeNovo(); }
+        descartarPendente();
+        const n = T.itensDa(l.id).length;
+        const p = { tipo: "apagarLista", id: l.id, c: { titulo: l.nome } };
+        p.cartao = el("div", { class: "cartao perigo" }, el("div", { class: "tt", text: "Apagar a lista " + l.nome }), el("p", { class: "alerta", text: n ? `Os ${n} ite${n > 1 ? "ns" : "m"} dela também serão apagados.` : "A lista está vazia." }),
+          el("div", { class: "botoes" }, el("button", { class: "btn", type: "button", text: "Manter", onclick: () => recusar() }), el("button", { class: "btn perigo", type: "button", text: "Apagar", onclick: () => confirmar() })));
+        chat.append(p.cartao); rolar(); pendente = p;
+        return dizer(`Realmente deseja apagar a lista ${l.nome}${n ? ` e os ${n} ite${n > 1 ? "ns" : "m"} dela` : ""}?`).then(() => porVoz && ouvirDeNovo());
+      }
+      case "lista_enviar": {
+        const l = (r.id != null && T.lista_(r.id)) || (r.lista && r.lista.nome ? T.acharLista(r.lista.nome) : null) || T.GERAL;
+        const b = el("button", { class: "btn primario", type: "button", html: "Enviar pelo WhatsApp", onclick: () => T.enviarWhatsApp(l.id) });
+        const s2 = el("button", { class: "btn", type: "button", text: "Outro app", onclick: () => T.compartilhar(l.id) });
+        await dizer(`Aqui está a lista ${l.nome}, senhor. Toque para enviar.`);
+        chat.append(el("div", { class: "msg jarbas" }, el("div", { class: "pre", text: T.textoParaEnviar(l.id) }), el("div", { class: "botoes", style: "margin-top:10px;display:flex;gap:8px" }, s2, b))); rolar();
+        return;
+      }
+      case "listas_ver": {
+        const ls = T.listas();
+        const pl = (n, s, p) => `${n} ${n === 1 ? s : p}`;
+        const linhas = [`Geral: ${pl(T.itensDa("").filter((t) => !t.feita).length, "pendente", "pendentes")}`].concat(ls.map((l) => `${l.nome}: ${l.tipo === "compras" ? T.itensDa(l.id).filter((t) => !t.feita).length + " para comprar" : pl(T.itensDa(l.id).filter((t) => !t.feita).length, "pendente", "pendentes")}${l.data ? " (" + T.rotuloLista(l).replace(" · 🔔", "") + ")" : ""}`));
+        return dizer(ls.length ? `O senhor tem ${ls.length + 1} listas:\n${linhas.join(";\n")}.` : "Por enquanto só a lista Geral, senhor. Quer criar outra? Por exemplo: \"cria a lista Mercado Livre\".");
+      }
+      case "contato_salvar": {
+        const c = J.contatos.normalizar(r.contato || {});
+        if (!c.nome) { await dizer(resp || "Qual é o nome do contato, senhor?"); return porVoz && ouvirDeNovo(); }
+        if (!J.contatos.valido(c)) { await dizer(`Qual é o número de ${c.nome}, senhor? Com DDD, por favor.`); return porVoz && ouvirDeNovo(); }
+        const { contato, atualizado } = J.contatos.salvar(c);
+        return dizer(`${atualizado ? "Atualizei" : "Salvei"} o contato ${contato.nome}, ${J.contatos.formatar(contato.numero)}.`);
+      }
+      case "contato_apagar": {
+        const c = J.contatos.obter(r.id) || (r.contato && r.contato.nome ? J.contatos.procurar(r.contato.nome)[0] : null);
+        if (!c) { await dizer(resp || "Não encontrei esse contato, senhor."); return; }
+        descartarPendente();
+        const p = { tipo: "apagarContato", id: c.id, c: { titulo: c.nome } };
+        p.cartao = el("div", { class: "cartao perigo" }, el("div", { class: "tt", text: "Apagar o contato " + c.nome }), el("p", { class: "alerta", text: J.contatos.formatar(c.numero) }),
+          el("div", { class: "botoes" }, el("button", { class: "btn", type: "button", text: "Manter", onclick: () => recusar() }), el("button", { class: "btn perigo", type: "button", text: "Apagar", onclick: () => confirmar() })));
+        chat.append(p.cartao); rolar(); pendente = p;
+        return dizer(`Realmente deseja apagar o contato ${c.nome}?`).then(() => porVoz && ouvirDeNovo());
+      }
+      case "ligar": {
+        const K = J.contatos, pedido = r.contato || {};
+        let achados = r.id && K.obter(r.id) ? [K.obter(r.id)] : K.procurar(pedido.nome);
+        if (!achados.length && K.digitos(pedido.numero).length >= 8) achados = [{ nome: pedido.nome || K.formatar(pedido.numero), numero: pedido.numero }];
+        if (!achados.length) { await dizer(pedido.nome ? `Não tenho ${pedido.nome} nos contatos, senhor. Qual é o número? Eu salvo para as próximas vezes.` : "Para quem devo ligar, senhor?"); return porVoz && ouvirDeNovo(); }
+        const botoes = el("div", { class: "botoes", style: "margin-top:10px;display:flex;flex-wrap:wrap;gap:8px" });
+        achados.slice(0, 6).forEach((c) => botoes.append(el("button", { class: "btn primario btn-tel", type: "button", onclick: () => K.ligar(c) }, el("span", { html: K.ICO_TEL }), c.nome)));
+        await dizer(achados.length === 1 ? `Ligando para ${achados[0].nome}, senhor. Toque para chamar.` : `Encontrei ${achados.length} contatos, senhor: ${achados.map((c) => c.nome).join(", ")}. Qual deles?`);
+        chat.append(el("div", { class: "msg jarbas" }, achados.length === 1 ? el("div", { class: "sub", text: K.formatar(achados[0].numero) }) : null, botoes)); rolar();
+        return;
+      }
+      case "contatos_ver": {
+        const l = J.contatos.lista();
+        return dizer(l.length ? `O senhor tem ${l.length} contato${l.length > 1 ? "s" : ""}:\n${l.map((c) => `${c.nome}: ${J.contatos.formatar(c.numero)}`).join(";\n")}.` : "Ainda não há contatos no Jarbas, senhor. Diga, por exemplo: \"salva o contato do João, 11 98765-4321\".");
       }
       case "tarefa_concluir": {
         let alvos = tarefasAlvo(r, r.desfazer ? "feitas" : "pendentes");
         if (!alvos.length) { await dizer(resp || "Não encontrei essa tarefa, senhor. Qual delas?"); return porVoz && ouvirDeNovo(); }
         alvos.forEach((t) => T.concluir(t.id, !r.desfazer)); J.vibrar(15);
         if (r.desfazer) return dizer(alvos.length === 1 ? `Pronto, senhor. ${alvos[0].titulo} voltou para as pendentes.` : `Pronto, senhor. ${alvos.length} tarefas voltaram para as pendentes.`);
+        const lc = alvos.every((t) => t.lista && t.lista === alvos[0].lista) ? T.lista_(alvos[0].lista) : null;
+        if (lc && lc.tipo === "compras") { const f2 = T.itensDa(lc.id).filter((t) => !t.feita).length; return dizer(`No carrinho: ${alvos.map((t) => t.titulo).join(", ")}. ${f2 ? (f2 === 1 ? "Falta 1 item" : `Faltam ${f2} itens`) + " na lista." : "Tudo comprado, senhor ✓"}`); }
         const faltam = T.pendentes().length;
         return dizer(`${alvos.length === 1 ? "Feito ✓ " + alvos[0].titulo + "." : `Marquei ${alvos.length} tarefas como feitas.`} ${faltam ? `Restam ${faltam === 1 ? "1 pendente" : faltam + " pendentes"}.` : "Nenhuma pendente, senhor. Muito bem."}`);
       }
@@ -284,9 +373,16 @@
         const f = Object.assign({ status: "pendentes" }, r.filtro || {});
         const l = T.filtrar(f);
         const qual = f.status === "feitas" ? "concluída" : "pendente";
-        const periodo = f.de ? " " + fraseperiodo(f) : "";
+        const lf = f.lista ? T.acharLista(f.lista) : null;
+        if (f.lista && !lf) return dizer(`Não encontrei a lista ${f.lista}, senhor.`);
+        if (lf) T.mostrarLista(lf.id);
+        if (lf && lf.tipo === "compras" && f.status !== "feitas") {
+          if (!l.length) return dizer(`Nada para comprar na lista ${lf.nome}, senhor.`);
+          return dizer(`Na lista ${lf.nome} ${l.length === 1 ? "falta 1 item" : "faltam " + l.length + " itens"}:\n${l.map((t) => T.textoItem(t)).join(";\n")}.`);
+        }
+        const periodo = (f.de ? " " + fraseperiodo(f) : "") + (lf ? " na lista " + lf.nome : "");
         if (!l.length) return dizer(f.status === "feitas" ? `Nenhuma tarefa concluída${periodo}, senhor.` : `Nenhuma tarefa pendente${periodo}, senhor.`);
-        const itens = l.map((t) => `${t.importante ? "★ " : ""}${t.titulo}${t.prazo ? " (" + T.rotuloPrazo(t) + ")" : ""}`);
+        const itens = l.map((t) => `${t.importante ? "★ " : ""}${T.textoItem(t)}${t.prazo ? " (" + T.rotuloPrazo(t) + ")" : ""}`);
         return dizer(`O senhor tem ${l.length === 1 ? "1 tarefa " + qual : l.length + " tarefas " + qual + "s"}${periodo}:\n${itens.join(";\n")}.`);
       }
       case "naoentendi": await dizer("Perdão, senhor, não consegui ouvir bem. Pode repetir?"); return porVoz && ouvirDeNovo();
@@ -434,6 +530,8 @@
   document.querySelectorAll("#abas button").forEach((b) => (b.onclick = () => mostrar(b.dataset.tela)));
   function contador() { const n = A.lista().filter((c) => c.data >= J.agora().data).length; $("contador").hidden = !n; $("contador").textContent = n > 99 ? "99+" : String(n); }
   function contadorT() { const hoje = J.agora().data; const n = T.pendentes().filter((t) => t.prazo && t.prazo <= hoje).length; $("contador-t").hidden = !n; $("contador-t").textContent = n > 99 ? "99+" : String(n); }
+  J.contatos.onMudou = () => { if (telaAtual === "ajustes") renderAjustes(); };
+  T.renovar(); setInterval(() => T.renovar(), 10 * 60000);
   T.onMudou = () => { contadorT(); if (telaAtual === "tarefas") T.render(); J.avisos.sincronizar(); };
   A.onMudou = () => { contador(); if (telaAtual === "agenda") A.render(); J.avisos.sincronizar(); if (telaAtual === "ajustes") renderAjustes(); };
 
@@ -511,17 +609,18 @@
   }
   function avisarTarefa(c) {
     avisoAtual = c;
-    $("aviso-t").textContent = "Tarefa: " + c.titulo;
+    $("aviso-t").textContent = (c.ehLista ? "Lista: " : "Tarefa: ") + c.titulo;
     $("aviso-s").textContent = c.semHora ? "Para hoje" : "Prazo às " + J.fmtH(c.inicio);
     $("aviso").hidden = false;
     V.destravar(); V.som("aviso"); J.vibrar([200, 100, 200]);
+    if (c.ehLista) { $("aviso-s").textContent = [c.semHora ? "Hoje" : "Às " + J.fmtH(c.inicio), c.local].filter(Boolean).join(" · "); T.mostrarLista(c.listaId); setTimeout(() => dizer(`Com licença, senhor. Lembrete da lista ${c.titulo}${c.semHora ? ", hoje" : ", às " + J.fmtH(c.inicio)}${c.local ? ": " + c.local : ""}.`), 1100); return; }
     setTimeout(() => dizer(`Com licença, senhor. Lembrete da tarefa: ${c.titulo}${c.semHora ? ", para hoje" : ", às " + J.fmtH(c.inicio)}.`), 1100);
   }
   $("aviso-ok").onclick = () => { $("aviso").hidden = true; avisoAtual = null; };
   const verificar = () => { A.verificarLembretes(avisar); A.verificarLembretes(avisar, T.comoCompromissos()); };
   setInterval(verificar, 2000);
   setTimeout(revisarAlarmes, 4000);
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) { verificar(); contador(); contadorT(); if (telaAtual === "tarefas") T.render(); revisarAlarmes(); J.avisos.sincronizar(); if (telaAtual === "agenda") A.render(); } });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { T.renovar(); verificar(); contador(); contadorT(); if (telaAtual === "tarefas") T.render(); revisarAlarmes(); J.avisos.sincronizar(); if (telaAtual === "agenda") A.render(); } });
 
   /* ================= ajustes ================= */
   function interruptor(ligado, aoMudar, rotulo) {
@@ -582,6 +681,7 @@
       el("div", { class: "secao" }, el("h3", { text: "Cérebro" }), cerebro),
       el("div", { class: "secao" }, el("h3", { text: "Voz" }), voz),
       el("div", { class: "secao" }, el("h3", { text: "Lembretes" }), avisos),
+      el("div", { class: "secao" }, el("h3", { text: "Contatos (para ligar pelo Jarbas)" }), J.contatos.renderGrupo()),
       el("div", { class: "secao" }, el("h3", { text: "Seus dados (ficam só neste iPhone)" }), dados),
       el("div", { class: "secao" }, el("h3", { text: "Aplicativo" }), app),
       el("p", { class: "rodape", text: `Jarbas ${VERSAO} · seu assistente pessoal` }));

@@ -1,7 +1,7 @@
 /* Jarbas · service worker: abre o app mesmo sem internet e atualiza sozinho */
-const VERSAO = "jarbas-v26";
-const ARQUIVOS = ["./", "index.html", "styles.css?v=26", "manifest.webmanifest",
-  "js/util.js?v=26", "js/gemini.js?v=26", "js/voz.js?v=26", "js/agenda.js?v=26", "js/tarefas.js?v=26", "js/avisos.js?v=26", "js/financas.js?v=26", "js/cerebro.js?v=26", "js/app.js?v=26",
+const VERSAO = "jarbas-v27";
+const ARQUIVOS = ["./", "index.html", "styles.css?v=27", "manifest.webmanifest",
+  "js/util.js?v=27", "js/gemini.js?v=27", "js/voz.js?v=27", "js/agenda.js?v=27", "js/tarefas.js?v=27", "js/contatos.js?v=27", "js/avisos.js?v=27", "js/financas.js?v=27", "js/cerebro.js?v=27", "js/app.js?v=27",
   "icons/icon-192.png", "icons/apple-touch-icon.png"];
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(VERSAO).then((c) => c.addAll(ARQUIVOS)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== VERSAO).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });

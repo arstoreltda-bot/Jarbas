@@ -44,6 +44,7 @@
   };
 
   function textoAviso(c, m) {
+    if (c.ehLista) return { titulo: "Lista: " + c.titulo, texto: [m > 0 ? J.rotuloDia(c.data).replace(" · ", ", ") + (c.semHora ? "" : ", às " + J.fmtH(c.inicio)) : c.semHora ? "Hoje" : "Agora (" + J.fmtH(c.inicio) + ")", c.local].filter(Boolean).join(" · ") };
     if (c.tarefa) {
       const dia = J.rotuloDia(c.data).replace(" · ", ", ");
       return { titulo: "Tarefa: " + c.titulo, texto: m > 0 ? `Prazo: ${dia}${c.semHora ? "" : ", às " + J.fmtH(c.inicio)}` : c.semHora ? "Para fazer hoje" : `Para fazer agora (${J.fmtH(c.inicio)})` };
