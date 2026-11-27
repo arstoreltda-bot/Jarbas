@@ -2,7 +2,7 @@
 "use strict";
 (function (J) {
   const $ = J.$, el = J.el, V = J.voz, G = J.gemini, A = J.agenda;
-  const VERSAO = "1.0.10";
+  const VERSAO = "1.0.11";
   const chat = $("chat"), entrada = $("entrada"), btnAcao = $("btn-acao");
   const ehIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const instalado = () => window.navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
@@ -227,7 +227,7 @@
 
   /* ================= microfone ================= */
   let escuta = null;
-  async function ouvir({ auto = false } = {}) {
+  async function ouvir({ auto = false, nova = false } = {}) {
     if (escuta) { escuta.parar(); return; }
     if (ocupado) return;
     V.destravar(); V.calar();
@@ -236,7 +236,7 @@
     const ov = $("escuta"), orbeG = $("escuta-orbe"), txt = $("escuta-txt");
     txt.textContent = auto ? "Pode responder, senhor…" : "Ouvindo, senhor…";
     ov.hidden = false; estado("ouvindo");
-    if (!auto) { V.som("ouvir"); await J.sleep(160); }
+    if (!auto && !nova) { V.som("ouvir"); await J.sleep(160); }
     try {
       escuta = await V.ouvir({
         esperaInicial: auto ? 6000 : 9000,
@@ -250,9 +250,10 @@
       return;
     }
     const res = await escuta.pronto; escuta = null;
+    if (res && res.mudo && !nova) { return ouvir({ auto, nova: true }); } // reabre o microfone sozinho, sem incomodar
     ov.hidden = true; orbeG.style.transform = ""; estado();
-    if (!res) return;
-    if (!res.falou || res.duracao < 0.5) { if (!auto) dizer(res.pico < 0.003 ? "O microfone chegou mudo, senhor. Confira se o Jarbas tem permissão de microfone e tente de novo." : "Não ouvi nada, senhor. Toque no microfone e fale um pouco mais perto.", { guardar: false }); return; }
+    if (!res || res.mudo) { if (res && !auto) dizer("Não consegui ouvir o microfone, senhor. Toque nele de novo, por favor.", { guardar: false }); return; }
+    if (!res.falou || res.duracao < 0.5) { if (res.pico < 0.003) V.soltarMicrofone(); if (!auto) dizer("Não ouvi nada, senhor. Toque no microfone e fale de novo, por favor.", { guardar: false }); return; }
     V.som("fim");
     processar({ audio: res.wav, duracao: res.duracao });
   }

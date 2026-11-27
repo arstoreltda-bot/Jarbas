@@ -32,11 +32,15 @@
   let micStream = null, micTimer = null;
   async function pegarMicrofone() {
     clearTimeout(micTimer);
-    if (micStream && micStream.getAudioTracks().some((t) => t.readyState === "live")) {
+    if (micStream && micStream.getAudioTracks().some((t) => t.readyState === "live" && !t.muted)) {
       micStream.getAudioTracks().forEach((t) => (t.enabled = true));
       return micStream;
     }
+    if (micStream) soltarMicrofone();
     micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+    micStream.novo = true;
+    /* se o iPhone interromper o microfone (modo silencioso, ligação, Siri), solta para abrir um novo na próxima vez */
+    micStream.getAudioTracks().forEach((t) => { t.onended = () => { if (!gravando) soltarMicrofone(); }; });
     return micStream;
   }
   function pausarMicrofone() {
@@ -66,6 +70,7 @@
       gravando = false; sessao("playback");
       const err = new Error(e && e.name === "NotAllowedError" ? "negado" : "indisponivel"); err.causa = e; throw err;
     }
+    const reusado = !stream.novo; stream.novo = false;
     /* No iPhone, um contexto de áudio criado antes do microfone pode gravar mudo ou distorcido.
        Por isso a gravação usa um contexto próprio, criado depois que o microfone abriu. */
     const Ctx = window.AudioContext || window.webkitAudioContext;
@@ -93,6 +98,8 @@
       const t = performance.now() - inicio;
       if (rms > 0) ruido = Math.min(ruido, Math.max(0.002, rms));   // nível do silêncio (o menor ouvido)
       pico = Math.max(pico, rms);
+      /* microfone reaproveitado mas mudo (o iPhone interrompeu): avisa para abrir um novo */
+      if (reusado && t > 700 && pico === 0) { encerrado = true; liberar(); soltarMicrofone(); fim({ mudo: true }); return; }
       const limiar = Math.max(0.01, ruido * 2.5);
       if (rms > limiar) { if (!falou && opcoes.onFala) opcoes.onFala(); falou = true; ultimaFala = t; }
       if (opcoes.onNivel) opcoes.onNivel(Math.min(1, rms / 0.08));
