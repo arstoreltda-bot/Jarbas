@@ -32,9 +32,11 @@
     const t = setTimeout(() => ctl.abort(), timeout);
     let r;
     try {
-      r = await fetch(`${BASE}/${caminho}${caminho.includes("?") ? "&" : "?"}key=${encodeURIComponent(chave)}`, {
+      const cab = { "x-goog-api-key": chave };
+      if (corpo) cab["Content-Type"] = "application/json";
+      r = await fetch(`${BASE}/${caminho}`, {
         method: corpo ? "POST" : "GET",
-        headers: corpo ? { "Content-Type": "application/json" } : undefined,
+        headers: cab,
         body: corpo ? JSON.stringify(corpo) : undefined,
         signal: ctl.signal,
       });

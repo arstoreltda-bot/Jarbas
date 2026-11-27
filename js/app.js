@@ -2,7 +2,7 @@
 "use strict";
 (function (J) {
   const $ = J.$, el = J.el, V = J.voz, G = J.gemini, A = J.agenda;
-  const VERSAO = "1.0.0";
+  const VERSAO = "1.0.1";
   const chat = $("chat"), entrada = $("entrada"), btnAcao = $("btn-acao");
   const ehIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const instalado = () => window.navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
@@ -376,12 +376,12 @@
         el("button", { class: "ligacao", type: "button", text: "Continuar no navegador por enquanto", onclick: () => { J.store.set("inicio.pulouInstalar", true); fechar(); if (!G.temChave() && !J.store.get("inicio.pulouChave")) mostrarInicio("chave"); } })));
       return;
     }
-    const campo = el("input", { type: "text", placeholder: "Cole aqui a chave (começa com AIza…)", autocapitalize: "off", autocorrect: "off", spellcheck: "false", "aria-label": "Chave da API do Gemini", value: "" });
+    const campo = el("input", { type: "text", placeholder: "Cole aqui a chave (AQ.… ou AIza…)", autocapitalize: "off", autocorrect: "off", spellcheck: "false", "aria-label": "Chave da API do Gemini", value: "" });
     const msg = el("p", { class: "fraco", text: "A chave fica guardada só neste iPhone." });
     const botao = el("button", { class: "btn primario", type: "button", text: "Conectar o Jarbas" });
     botao.onclick = async () => {
       const k = campo.value.trim().replace(/\s+/g, "");
-      if (!/^[A-Za-z0-9_\-]{30,}$/.test(k)) { msg.textContent = "Essa chave parece incompleta. Copie de novo no AI Studio."; msg.style.color = "var(--alerta)"; return; }
+      if (!/^[A-Za-z0-9_.\-]{25,}$/.test(k)) { msg.textContent = "Essa chave parece incompleta. Copie de novo no AI Studio."; msg.style.color = "var(--alerta)"; return; }
       botao.disabled = true; botao.textContent = "Testando a chave…"; msg.style.color = ""; msg.textContent = "Conversando com o Google…";
       try {
         await G.configurar(k);
@@ -399,7 +399,7 @@
       el("ol", { class: "passos" },
         el("li", { html: `<span>Toque aqui: <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> e entre com sua conta Google. Se pedir, aceite os termos.</span>` }),
         el("li", { html: `<span>Toque em <b>Create API key</b> (Criar chave de API). Se perguntar o projeto, escolha o que aparecer ou crie um novo.</span>` }),
-        el("li", { html: `<span>Toque em <b>Copiar</b> ao lado da chave (começa com <b>AIza</b>).</span>` }),
+        el("li", { html: `<span>Toque em <b>Copiar</b> ao lado da chave (começa com <b>AQ.</b> ou <b>AIza</b>).</span>` }),
         el("li", { html: `<span>Volte aqui, cole no campo abaixo e toque em <b>Conectar</b>. Não precisa cadastrar cartão.</span>` })),
       campo, botao, msg,
       el("button", { class: "ligacao", type: "button", text: G.temChave() ? "Voltar" : "Fazer isso depois", onclick: () => { J.store.set("inicio.pulouChave", true); fechar(); } })));
