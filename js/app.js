@@ -2,7 +2,7 @@
 "use strict";
 (function (J) {
   const $ = J.$, el = J.el, V = J.voz, G = J.gemini, A = J.agenda;
-  const VERSAO = "1.1.4";
+  const VERSAO = "1.1.5";
   const chat = $("chat"), entrada = $("entrada"), btnAcao = $("btn-acao");
   const ehIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const instalado = () => window.navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
@@ -118,9 +118,24 @@
     pendente = p;
     return dizer(`Deseja que eu desmarque ${alvo.titulo}, ${J.diaFrase(alvo.data)}${alvo.diaInteiro ? "" : ", às " + J.fmtH(alvo.inicio)}?`).then(() => porVoz && ouvirDeNovo());
   }
+  function pedirCancelamentoVarios(alvos, porVoz) {
+    descartarPendente();
+    alvos.sort((a, b) => (a.data + (a.inicio || "")).localeCompare(b.data + (b.inicio || "")));
+    const p = { tipo: "cancelar", ids: alvos.map((a) => a.id), c: alvos[0] };
+    const k = el("div", { class: "cartao perigo" }, el("div", { class: "tt", text: `Desmarcar ${alvos.length} compromissos` }));
+    const ul = el("div", { class: "det" });
+    alvos.forEach((a) => ul.append(el("span", { html: ICO.dia }), el("span", { text: `${J.rotuloDia(a.data)}${a.diaInteiro ? ", dia inteiro" : ", " + J.fmtH(a.inicio)} · ${a.titulo}` })));
+    k.append(ul, el("div", { class: "botoes" }, el("button", { class: "btn", type: "button", text: "Manter", onclick: () => recusar() }), el("button", { class: "btn perigo", type: "button", text: `Desmarcar os ${alvos.length}`, onclick: () => confirmar() })));
+    chat.append(k); rolar(); p.cartao = k;
+    pendente = p;
+    const mesmoDia = alvos.every((a) => a.data === alvos[0].data);
+    const nomes = alvos.length <= 4 ? ": " + alvos.map((a) => a.titulo + (a.diaInteiro ? "" : " às " + J.fmtH(a.inicio))).join(", ") : "";
+    return dizer(`Realmente deseja desmarcar os ${alvos.length} compromissos${mesmoDia ? " de " + J.diaFrase(alvos[0].data) : ""}${nomes}?`).then(() => porVoz && ouvirDeNovo());
+  }
   function confirmar() {
     const p = pendente; if (!p) return dizer(variar(PRONTO, "pronto"));
     pendente = null;
+    if (p.tipo === "cancelar" && p.ids) { p.ids.forEach((i) => A.remover(i)); encerrarCartao(p, `${p.ids.length} desmarcados ✓`, true); J.vibrar(15); return dizer(`Pronto, senhor. Desmarquei os ${p.ids.length} compromissos.`); }
     if (p.tipo === "cancelar") { A.remover(p.id); encerrarCartao(p, "Desmarcado ✓", true); return dizer("Desmarcado, senhor."); }
     if (p.tipo === "lembrete") { pendente = p; return dizer("Antes, senhor: quanto tempo antes devo lembrá-lo?"); }
     p.final = p.id ? A.alterar(p.id, p.c) : A.salvar(p.c);
@@ -176,9 +191,11 @@
         return pedirConfirmacao(c, id, porVoz);
       }
       case "cancelar": {
-        const alvo = A.obter(r.id);
-        if (!alvo) { await dizer(resp || "Qual compromisso o senhor deseja desmarcar?"); return porVoz && ouvirDeNovo(); }
-        return pedirCancelamento(alvo, porVoz);
+        const ids = [...new Set([].concat(Array.isArray(r.ids) ? r.ids : [], r.id ? [r.id] : []))];
+        const alvos = ids.map((i) => A.obter(i)).filter(Boolean);
+        if (!alvos.length) { await dizer(resp || "Qual compromisso o senhor deseja desmarcar?"); return porVoz && ouvirDeNovo(); }
+        if (alvos.length > 1) return pedirCancelamentoVarios(alvos, porVoz);
+        return pedirCancelamento(alvos[0], porVoz);
       }
       case "confirmar": return confirmar();
       case "recusar": return recusar();
