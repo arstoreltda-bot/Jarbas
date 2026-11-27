@@ -2,7 +2,7 @@
 "use strict";
 (function (J) {
   const $ = J.$, el = J.el, V = J.voz, G = J.gemini, A = J.agenda;
-  const VERSAO = "1.0.7";
+  const VERSAO = "1.0.8";
   const chat = $("chat"), entrada = $("entrada"), btnAcao = $("btn-acao");
   const ehIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const instalado = () => window.navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
@@ -32,7 +32,19 @@
   function digitando() { const e = el("div", { class: "digitando", "aria-label": "Jarbas está pensando" }, el("i"), el("i"), el("i")); chat.append(e); rolar(); return e; }
 
   /* Jarbas diz algo: escreve, guarda e fala. Retorna quando terminar de falar. */
+  /* cumprimento do dia: só na primeira mensagem do senhor em cada dia */
+  let saudarAgora = false;
+  function marcarSaudacao() {
+    const hoje = J.agora().data;
+    if (J.store.get("saudacao.dia", "") !== hoje) { J.store.set("saudacao.dia", hoje); saudarAgora = true; }
+  }
   function dizer(texto, { falar = true, guardar = true } = {}) {
+    if (saudarAgora) {
+      saudarAgora = false;
+      const s = J.saudacao();
+      texto = String(texto || "").replace(/^(bom dia|boa tarde|boa noite)[,!.]?\s*(senhor[,!.]?)?\s*/i, "");
+      texto = /^(sim|às suas ordens|pronto|estou aqui|sistemas)/i.test(texto) ? `${s}, senhor. ${texto.replace(/^sim, senhor\.\s*/i, "")}`.trim() : `${s}, senhor. ${texto}`.trim();
+    }
     bolha("jarbas", texto);
     if (guardar) { historico.push({ de: "jarbas", texto, t: Date.now() }); salvarHist(); }
     return falar ? V.falar(texto) : Promise.resolve();
@@ -170,6 +182,7 @@
   async function processar(ent) {
     if (ocupado) return; ocupado = true;
     $("sugestoes").hidden = true;
+    marcarSaudacao();
     const porVoz = !!ent.audio;
     let minha = null;
     if (ent.texto) { minha = bolha("eu", ent.texto); historico.push({ de: "eu", texto: ent.texto, t: Date.now() }); salvarHist(); }
@@ -441,7 +454,7 @@
       bolha(h.de, h.texto, h.voz ? "voz" : "");
     });
     if (historico.length) $("sugestoes").hidden = true;
-    bolha("jarbas", historico.length ? variar(PRONTO, "pronto") : `${J.saudacao()}, senhor. Estou pronto.`);
+    bolha("jarbas", variar(PRONTO, "pronto"));
     if (ehIOS && !instalado() && !J.store.get("inicio.pulouInstalar")) mostrarInicio("instalar");
     else if (!G.temChave() && !J.store.get("inicio.pulouChave")) mostrarInicio("chave");
     verificar();
