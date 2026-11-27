@@ -2,7 +2,7 @@
 "use strict";
 (function (J) {
   const $ = J.$, el = J.el, V = J.voz, G = J.gemini, A = J.agenda, T = J.tarefas;
-  const VERSAO = "1.3.0";
+  const VERSAO = "1.4.0";
   const chat = $("chat"), entrada = $("entrada"), btnAcao = $("btn-acao");
   const ehIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const instalado = () => window.navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
@@ -96,8 +96,9 @@
     p.cartao = cartao(c, { alerta, botoes: [el("button", { class: "btn", type: "button", text: "Cancelar", onclick: () => recusar() }), el("button", { class: "btn primario", type: "button", text: id ? "Salvar alteração" : "Confirmar", onclick: () => confirmar() })] });
     pendente = p;
     const lem = (c.lembrete == null ? "" : c.lembrete === -1 ? ", sem aviso" : `, com ${J.rotuloAvisos(c)}`) + (c.alarme && c.lembrete !== -1 ? ", tocando como alarme" : "");
-    const frase = id ? `Vou alterar para ${c.titulo}, ${J.diaFrase(c.data)}, ${c.diaInteiro ? "o dia inteiro" : "às " + J.fmtH(c.inicio)}${lem}. Confirma, senhor?`
-      : `Vou marcar ${c.titulo}, ${J.diaFrase(c.data)}, ${c.diaInteiro ? "o dia inteiro" : "às " + J.fmtH(c.inicio)}${lem}. ${alerta ? alerta + " " : ""}Confirma, senhor?`;
+    const quando = c.repetir ? `${A.rotuloRepetir(c)}${c.diaInteiro ? "" : ", às " + J.fmtH(c.inicio)}, ${c.ate ? "a partir de " + J.diaFrase(c.data) : "começando " + J.diaFrase(c.data) + ", sem data para terminar"}` : `${J.diaFrase(c.data)}, ${c.diaInteiro ? "o dia inteiro" : "às " + J.fmtH(c.inicio)}`;
+    const frase = id ? `Vou alterar para ${c.titulo}, ${quando}${lem}. Confirma, senhor?`
+      : `Vou marcar ${c.titulo}, ${quando}${lem}. ${alerta ? alerta + " " : ""}Confirma, senhor?`;
     return dizer(frase).then(() => porVoz && ouvirDeNovo());
   }
   function perguntarLembrete(c, id, porVoz) {
@@ -116,19 +117,22 @@
     const p = { tipo: "cancelar", c: alvo, id: alvo.id };
     p.cartao = cartao(alvo, { perigo: true, botoes: [el("button", { class: "btn", type: "button", text: "Manter", onclick: () => recusar() }), el("button", { class: "btn perigo", type: "button", text: "Desmarcar", onclick: () => confirmar() })] });
     pendente = p;
-    return dizer(`Deseja que eu desmarque ${alvo.titulo}, ${J.diaFrase(alvo.data)}${alvo.diaInteiro ? "" : ", às " + J.fmtH(alvo.inicio)}?`).then(() => porVoz && ouvirDeNovo());
+    return dizer(alvo.repetir ? `Deseja que eu desmarque ${alvo.titulo} de ${A.rotuloRepetir(alvo)}, todas as próximas vezes?` : `Deseja que eu desmarque ${alvo.titulo}, ${J.diaFrase(alvo.data)}${alvo.diaInteiro ? "" : ", às " + J.fmtH(alvo.inicio)}?`).then(() => porVoz && ouvirDeNovo());
   }
   function pedirCancelamentoVarios(alvos, porVoz) {
     descartarPendente();
     alvos.sort((a, b) => (a.data + (a.inicio || "")).localeCompare(b.data + (b.inicio || "")));
-    const p = { tipo: "cancelar", ids: alvos.map((a) => a.id), c: alvos[0] };
-    const k = el("div", { class: "cartao perigo" }, el("div", { class: "tt", text: `Desmarcar ${alvos.length} compromissos` }));
+    /* dia de uma série: tira só aquele dia; compromisso comum ou série inteira: apaga */
+    const p = { tipo: "cancelar", alvos: alvos.map((a) => ({ id: a.id, data: a.data, so: !!a.serie })), ids: alvos.map((a) => a.id), c: alvos[0] };
+    const um = alvos.length === 1;
+    const k = el("div", { class: "cartao perigo" }, el("div", { class: "tt", text: um ? `Desmarcar ${alvos[0].titulo}` : `Desmarcar ${alvos.length} compromissos` }));
     const ul = el("div", { class: "det" });
-    alvos.forEach((a) => ul.append(el("span", { html: ICO.dia }), el("span", { text: `${J.rotuloDia(a.data)}${a.diaInteiro ? ", dia inteiro" : ", " + J.fmtH(a.inicio)} · ${a.titulo}` })));
-    k.append(ul, el("div", { class: "botoes" }, el("button", { class: "btn", type: "button", text: "Manter", onclick: () => recusar() }), el("button", { class: "btn perigo", type: "button", text: `Desmarcar os ${alvos.length}`, onclick: () => confirmar() })));
+    alvos.forEach((a) => ul.append(el("span", { html: ICO.dia }), el("span", { text: `${J.rotuloDia(a.data)}${a.diaInteiro ? ", dia inteiro" : ", " + J.fmtH(a.inicio)} · ${a.titulo}${a.serie ? " (só este dia)" : ""}` })));
+    k.append(ul, el("div", { class: "botoes" }, el("button", { class: "btn", type: "button", text: "Manter", onclick: () => recusar() }), el("button", { class: "btn perigo", type: "button", text: um ? "Desmarcar" : `Desmarcar os ${alvos.length}`, onclick: () => confirmar() })));
     chat.append(k); rolar(); p.cartao = k;
     pendente = p;
     const mesmoDia = alvos.every((a) => a.data === alvos[0].data);
+    if (um) return dizer(`Desmarco só ${alvos[0].titulo} de ${J.diaFrase(alvos[0].data)}? Os outros dias continuam marcados.`).then(() => porVoz && ouvirDeNovo());
     const nomes = alvos.length <= 4 ? ": " + alvos.map((a) => a.titulo + (a.diaInteiro ? "" : " às " + J.fmtH(a.inicio))).join(", ") : "";
     return dizer(`Realmente deseja desmarcar os ${alvos.length} compromissos${mesmoDia ? " de " + J.diaFrase(alvos[0].data) : ""}${nomes}?`).then(() => porVoz && ouvirDeNovo());
   }
@@ -138,7 +142,7 @@
     if (p.tipo === "apagarLista") { const l = T.lista_(p.id); T.removerLista(p.id); encerrarCartao(p, "Apagada ✓", true); return dizer(`Pronto, senhor. Apaguei a lista ${l ? l.nome : ""}.`); }
     if (p.tipo === "apagarContato") { J.contatos.remover(p.id); encerrarCartao(p, "Apagado ✓", true); return dizer("Contato apagado, senhor."); }
     if (p.tipo === "apagarTarefas") { p.ids.forEach((i) => T.remover(i)); encerrarCartao(p, p.ids.length === 1 ? "Apagada ✓" : `${p.ids.length} apagadas ✓`, true); J.vibrar(15); return dizer(p.ids.length === 1 ? "Apagada, senhor." : `Pronto, senhor. Apaguei as ${p.ids.length} tarefas.`); }
-    if (p.tipo === "cancelar" && p.ids) { p.ids.forEach((i) => A.remover(i)); encerrarCartao(p, `${p.ids.length} desmarcados ✓`, true); J.vibrar(15); return dizer(`Pronto, senhor. Desmarquei os ${p.ids.length} compromissos.`); }
+    if (p.tipo === "cancelar" && p.alvos) { p.alvos.forEach((x) => (x.so ? A.pular(x.id, x.data) : A.remover(x.id))); encerrarCartao(p, p.ids.length === 1 ? "Desmarcado ✓" : `${p.ids.length} desmarcados ✓`, true); J.vibrar(15); return dizer(p.ids.length === 1 ? (p.alvos[0].so ? "Desmarcado só nesse dia, senhor. Os outros continuam." : "Desmarcado, senhor.") : `Pronto, senhor. Desmarquei os ${p.ids.length} compromissos.`); }
     if (p.tipo === "cancelar") { A.remover(p.id); encerrarCartao(p, "Desmarcado ✓", true); return dizer("Desmarcado, senhor."); }
     if (p.tipo === "lembrete") { pendente = p; return dizer("Antes, senhor: quanto tempo antes devo lembrá-lo?"); }
     p.final = p.id ? A.alterar(p.id, p.c) : A.salvar(p.c);
@@ -178,7 +182,7 @@
   function filtrarAgenda(f) {
     const de = f.de, ate = f.ate && f.ate >= f.de ? f.ate : f.de;
     let termo = semAcento(f.termo).trim(); if (GENERICOS.test(termo)) termo = "";
-    return A.lista().filter((c) => c.data >= de && c.data <= ate && (!termo || semAcento(c.titulo + " " + c.local).includes(termo.replace(/s$/, ""))))
+    return A.expandir(de, ate).filter((c) => (!termo || semAcento(c.titulo + " " + c.local).includes(termo.replace(/s$/, ""))))
       .sort((a, b) => (a.data + (a.inicio || "00:00")).localeCompare(b.data + (b.inicio || "00:00")));
   }
   function fraseperiodo(f, inicial) {
@@ -218,6 +222,7 @@
         let c = A.normalizar(Object.assign({}, base || {}, r.compromisso || {}));
         if (c.lembrete == null && base) c.lembrete = base.lembrete;
         if ((r.compromisso || {}).alarme == null && base) c.alarme = !!base.alarme;
+        if (base && base.repetir && !(r.compromisso || {}).repetir && (r.compromisso || {}).repetir !== "nao") { c.repetir = base.repetir; c.ate = (r.compromisso || {}).ate || base.ate || ""; c.excecoes = base.excecoes || []; c = A.normalizar(c); }
         if (r.alarme === true || (anterior && anterior.alarme && pendente.tipo === "confirmar")) c.alarme = true;
         if (c.lembrete == null && anterior && anterior.lembrete != null && pendente.tipo === "confirmar") c.lembrete = anterior.lembrete;
         const rc = r.compromisso || {};
@@ -229,12 +234,16 @@
       case "cancelar": {
         const ids = [...new Set([].concat(Array.isArray(r.ids) ? r.ids : [], r.id ? [r.id] : []))];
         let alvos = ids.map((i) => A.obter(i)).filter(Boolean);
+        if (r.soData && alvos.length === 1 && alvos[0].repetir) {
+          const s = alvos[0]; alvos = A.expandir(r.soData, r.soData).filter((o) => o.id === s.id);
+          if (!alvos.length) { await dizer(`${s.titulo} não acontece ${J.diaFrase(r.soData)}, senhor.`); return; }
+        }
         if (r.filtro && r.filtro.de) {
           alvos = filtrarAgenda(r.filtro);
           if (!alvos.length) { await dizer(`O senhor não tem nada marcado ${fraseperiodo(r.filtro)}.`); return; }
         }
         if (!alvos.length) { await dizer(resp || "Qual compromisso o senhor deseja desmarcar?"); return porVoz && ouvirDeNovo(); }
-        if (alvos.length > 1) return pedirCancelamentoVarios(alvos, porVoz);
+        if (alvos.length > 1 || alvos[0].serie) return pedirCancelamentoVarios(alvos, porVoz);
         return pedirCancelamento(alvos[0], porVoz);
       }
       case "confirmar": return confirmar();
@@ -528,7 +537,7 @@
   }
   J.ui.mostrar = mostrar;
   document.querySelectorAll("#abas button").forEach((b) => (b.onclick = () => mostrar(b.dataset.tela)));
-  function contador() { const n = A.lista().filter((c) => c.data >= J.agora().data).length; $("contador").hidden = !n; $("contador").textContent = n > 99 ? "99+" : String(n); }
+  function contador() { const n = A.expandir(J.agora().data, J.addDias(J.agora().data, 30)).length; $("contador").hidden = !n; $("contador").textContent = n > 99 ? "99+" : String(n); }
   function contadorT() { const hoje = J.agora().data; const n = T.pendentes().filter((t) => t.prazo && t.prazo <= hoje).length; $("contador-t").hidden = !n; $("contador-t").textContent = n > 99 ? "99+" : String(n); }
   J.contatos.onMudou = () => { if (telaAtual === "ajustes") renderAjustes(); };
   T.renovar(); setInterval(() => T.renovar(), 10 * 60000);
@@ -572,7 +581,7 @@
     chat.append(caixa); rolar();
   }
   /* ao abrir o app: oferece o alarme dos compromissos com alarme que entraram nas próximas 24 h */
-  function revisarAlarmes() { A.lista().filter((c) => c.alarme).forEach((c) => oferecerAlarme(c, false)); }
+  function revisarAlarmes() { A.expandir(J.agora().data, J.addDias(J.agora().data, 1)).filter((c) => c.alarme).forEach((c) => oferecerAlarme(c, false)); }
   function mostrarAtalho(depois) {
     const raiz = $("inicio"); raiz.hidden = false;
     const fechar = () => { raiz.hidden = true; raiz.replaceChildren(); if (telaAtual === "ajustes") renderAjustes(); };

@@ -68,7 +68,7 @@
     try {
       const agora = Date.now();
       const desejados = {};
-      J.agenda.lista().concat(J.tarefas ? J.tarefas.comoCompromissos() : []).forEach((c) => {
+      J.agenda.expandir(J.addDias(J.agora().data, -1), J.addDias(J.agora().data, 4)).concat(J.tarefas ? J.tarefas.comoCompromissos() : []).forEach((c) => {
         if (!J.agenda.valido(c)) return;
         const inicio = J.instante(c.data, c.diaInteiro ? "08:00" : c.inicio);
         J.listaLembretes(c.lembrete).forEach((m) => {

@@ -22,6 +22,9 @@
     c.local = String(c.local || "").trim().slice(0, 120);
     c.lembrete = A.normalizarLembrete(c.lembrete);
     c.alarme = !!c.alarme;
+    c.repetir = ["diario", "semanal", "quinzenal", "mensal"].includes(c.repetir) ? c.repetir : "";
+    c.ate = c.repetir && /^\d{4}-\d{2}-\d{2}$/.test(c.ate || "") && c.ate >= c.data ? c.ate : "";
+    c.excecoes = c.repetir && Array.isArray(c.excecoes) ? [...new Set(c.excecoes.filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)))].sort().slice(-200) : [];
     return c;
   };
   /* null = não informado · -1 = sem aviso · [minutos antes...] (aceita número, texto ou lista) */
@@ -34,26 +37,64 @@
   };
   A.valido = (c) => !!(c && c.titulo && /^\d{4}-\d{2}-\d{2}$/.test(c.data || "") && (c.diaInteiro || /^\d{2}:\d{2}$/.test(c.inicio || "")));
 
-  function campos(c) { return { titulo: c.titulo, data: c.data, inicio: c.inicio, fim: c.fim, diaInteiro: c.diaInteiro, local: c.local, calendario: c.calendario, lembrete: c.lembrete == null ? [60] : c.lembrete, alarme: !!c.alarme }; }
+  function campos(c) { return { titulo: c.titulo, data: c.data, inicio: c.inicio, fim: c.fim, diaInteiro: c.diaInteiro, local: c.local, calendario: c.calendario, lembrete: c.lembrete == null ? [60] : c.lembrete, alarme: !!c.alarme, repetir: c.repetir || "", ate: c.ate || "", excecoes: c.excecoes || [] }; }
   A.salvar = (c) => { const d = J.store.inserir(COL, campos(A.normalizar(c))); A.mudou(); return d; };
   A.alterar = (id, c) => { const d = J.store.atualizar(COL, id, campos(A.normalizar(c))); limparAviso(id); A.mudou(); return d; };
   A.remover = (id) => { J.store.remover(COL, id); limparAviso(id); A.mudou(); };
   A.mudou = () => { if (A.onMudou) A.onMudou(); };
 
+  /* ---------- repetição ("toda terça", para sempre ou até uma data) ---------- */
+  const DIAS_P = ["domingo", "segunda", "terça", "quarta", "quinta", "sexta", "sábado"];
+  A.rotuloRepetir = function (c) {
+    if (!c.repetir) return "";
+    const ds = J.diaSemana(c.dataSerie || c.data), dia = DIAS_P[ds];
+    const t = c.repetir === "diario" ? "todo dia" : c.repetir === "semanal" ? (ds === 0 || ds === 6 ? "todo " : "toda ") + dia : c.repetir === "quinzenal" ? `a cada 2 semanas (${dia})` : `todo dia ${Number((c.dataSerie || c.data).slice(8))}`;
+    return t + (c.ate ? ` até ${J.rotuloDia(c.ate).replace(/^.* · /, "")}` : "");
+  };
+  function passo(c, inicio, n) {
+    if (c.repetir === "diario") return J.addDias(inicio, n);
+    if (c.repetir === "semanal") return J.addDias(inicio, 7 * n);
+    if (c.repetir === "quinzenal") return J.addDias(inicio, 14 * n);
+    const o = J.dObj(inicio), dia = o.getUTCDate(); o.setUTCDate(1); o.setUTCMonth(o.getUTCMonth() + n);
+    const ult = new Date(Date.UTC(o.getUTCFullYear(), o.getUTCMonth() + 1, 0)).getUTCDate();
+    if (dia > ult) return null; // mês sem esse dia: pula
+    o.setUTCDate(dia); return J.dStr(o);
+  }
+  /* todas as ocorrências entre de e ate (compromissos normais + cada dia das séries) */
+  A.expandir = function (de, ate) {
+    const out = [];
+    J.store.lista(COL).forEach((c) => {
+      if (!c.repetir) { if (c.data >= de && c.data <= ate) out.push(c); return; }
+      const fim = c.ate && c.ate < ate ? c.ate : ate;
+      const exc = new Set(c.excecoes || []);
+      const tam = c.repetir === "diario" ? 1 : c.repetir === "semanal" ? 7 : c.repetir === "quinzenal" ? 14 : 28;
+      let n = Math.max(0, Math.floor((J.dObj(de) - J.dObj(c.data)) / 86400000 / tam) - 1);
+      for (let k = 0; k < 800; k++, n++) {
+        const d = passo(c, c.data, n);
+        if (d === null) continue;
+        if (d > fim) break;
+        if (d >= de && d >= c.data && !exc.has(d)) out.push(Object.assign({}, c, { data: d, dataSerie: c.data, serie: true }));
+      }
+    });
+    return ordenar(out);
+  };
+  /* tira só um dia da série ("nessa terça não vai ter aula") */
+  A.pular = (id, data) => { const c = A.obter(id); if (!c) return null; const d = J.store.atualizar(COL, id, { excecoes: [...new Set((c.excecoes || []).concat([data]))].sort() }); A.mudou(); return d; };
+
   A.conflitos = function (c, ignorarId) {
     if (c.diaInteiro) return [];
     const a1 = J.minutos(c.inicio), a2 = J.minutos(c.fim || J.addMin(c.inicio, 60));
-    return A.lista().filter((o) => o.id !== ignorarId && o.data === c.data && !o.diaInteiro && a1 < J.minutos(o.fim || J.addMin(o.inicio, 60)) && J.minutos(o.inicio) < a2);
+    return A.expandir(c.data, c.data).filter((o) => o.id !== ignorarId && o.data === c.data && !o.diaInteiro && a1 < J.minutos(o.fim || J.addMin(o.inicio, 60)) && J.minutos(o.inicio) < a2);
   };
 
   /* resumo compacto para a IA */
   A.paraIA = function () {
     const hoje = J.agora().data, limite = J.addDias(hoje, 120);
-    return A.lista().filter((c) => c.data >= J.addDias(hoje, -7) && c.data <= limite).slice(0, 80)
-      .map((c) => ({ id: c.id, titulo: c.titulo, data: c.data, dia: J.DIAS[J.diaSemana(c.data)], inicio: c.inicio, fim: c.fim, diaInteiro: c.diaInteiro, local: c.local, calendario: c.calendario, lembreteMin: c.lembrete }));
+    return A.lista().filter((c) => (c.data >= J.addDias(hoje, -7) && c.data <= limite) || (c.repetir && (!c.ate || c.ate >= hoje))).slice(0, 80)
+      .map((c) => ({ repetir: c.repetir || undefined, ate: c.ate || undefined, proximas: c.repetir ? A.expandir(hoje, J.addDias(hoje, 70)).filter((o) => o.id === c.id).slice(0, 3).map((o) => o.data) : undefined, id: c.id, titulo: c.titulo, data: c.data, dia: J.DIAS[J.diaSemana(c.data)], inicio: c.inicio, fim: c.fim, diaInteiro: c.diaInteiro, local: c.local, calendario: c.calendario, lembreteMin: c.lembrete }));
   };
   A.resumoTexto = function (de, ate) {
-    const l = A.lista().filter((c) => c.data >= de && c.data <= ate);
+    const l = A.expandir(de, ate);
     if (!l.length) return "";
     return l.map((c) => `${J.rotuloDia(c.data).replace(/^(Hoje|Amanhã) · /, "$1, ")}, ${J.rotuloHora(c)}: ${c.titulo}`).join("\n");
   };
@@ -63,7 +104,7 @@
   function limparAviso(id) { const a = avisados(); Object.keys(a).forEach((k) => { if (k.startsWith(id + "|")) delete a[k]; }); J.store.set("agenda.avisados", a); }
   A.verificarLembretes = function (avisar, fonte) {
     const agora = Date.now(); const a = avisados(); let mudou = false;
-    (fonte || A.lista()).forEach((c) => {
+    (fonte || A.expandir(J.addDias(J.agora().data, -1), J.addDias(J.agora().data, 4))).forEach((c) => {
       if (!A.valido(c)) return;
       const inicio = J.instante(c.data, c.diaInteiro ? "08:00" : c.inicio);
       /* só o aviso mais recente que já chegou a hora (evita vários de uma vez) */
@@ -97,7 +138,9 @@
 
   A.render = function () {
     const raiz = J.$("agenda"); if (!raiz) return;
-    const hoje = J.agora().data, todos = A.lista();
+    const hoje = J.agora().data;
+    const iniMes = mesVisto + "-01", fimMes0 = J.dStr(new Date(Date.UTC(+mesVisto.slice(0, 4), +mesVisto.slice(5, 7), 0)));
+    const todos = A.expandir(diaSel < iniMes ? diaSel : iniMes, diaSel > fimMes0 ? diaSel : fimMes0);
     const porDia = {}; todos.forEach((c) => (porDia[c.data] = porDia[c.data] || []).push(c));
     const { y, m } = J.dParts(mesVisto + "-01");
 
@@ -128,15 +171,15 @@
         hora,
         el("div", { class: "item-txt" },
           el("div", { class: "tt" }, c.titulo, el("span", { class: "tag" + (c.calendario === "Trabalho" ? " trab" : ""), text: c.calendario })),
-          el("div", { class: "sub", text: [c.local, J.rotuloAvisos(c)].filter(Boolean).join(" · ") }))));
+          el("div", { class: "sub", text: [c.repetir ? "🔁 " + A.rotuloRepetir(c) : "", c.local, J.rotuloAvisos(c)].filter(Boolean).join(" · ") }))));
     });
 
-    const proximos = todos.filter((c) => c.data >= hoje).length;
+    const proximos = A.expandir(hoje, J.addDias(hoje, 30)).length;
     raiz.replaceChildren(
       cal,
       el("div", { class: "dia-tit" }, el("h2", { text: J.rotuloDiaLongo(diaSel) }), el("button", { class: "mais", type: "button", "aria-label": "Novo compromisso", onclick: () => A.abrirForm({ data: diaSel }), html: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>' })),
       lista,
-      proximos ? el("p", { class: "nota", text: `${proximos} compromisso${proximos > 1 ? "s" : ""} daqui para frente.` }) : null
+      proximos ? el("p", { class: "nota", text: `${proximos} compromisso${proximos > 1 ? "s" : ""} nos próximos 30 dias.` }) : null
     );
   };
 
@@ -161,20 +204,29 @@
     else if (!LEMBRETES.some(([v]) => String(v) === atual)) lem.append(el("option", { value: atual, text: J.rotuloLembrete(Number(atual)).replace(/^aviso /, "") }));
     lem.value = atual;
     const horas = el("div", { class: "duas" }, campo("Início", ini), campo("Fim", fim));
+    const repetir = el("select", {}, ...[["", "Não repete"], ["diario", "Todo dia"], ["semanal", "Toda semana"], ["quinzenal", "A cada 2 semanas"], ["mensal", "Todo mês"]].map(([v, t]) => el("option", { value: v, text: t }))); repetir.value = c.repetir || "";
+    const ate = el("input", { type: "date", value: c.ate || "" });
+    const blocoAte = campo("Até (vazio = para sempre)", ate);
+    const syncRep = () => { blocoAte.hidden = !repetir.value; }; repetir.onchange = syncRep; syncRep();
     const sync = () => { horas.hidden = diaInt.checked; }; diaInt.onchange = sync; sync();
     ini.onchange = () => { if (!fim.value || fim.value <= ini.value) fim.value = J.addMin(ini.value, 60); };
     const aviso = el("p", { class: "alerta", hidden: true });
-    f.append(campo("O quê", titulo), campo("Dia", data), el("label", { class: "linha-check" }, diaInt, el("span", { text: "Dia inteiro" })), horas, campo("Onde", local), el("div", { class: "duas" }, campo("Agenda", cal), campo("Lembrete", lem)), aviso);
+    f.append(campo("O quê", titulo), campo("Dia", data), el("label", { class: "linha-check" }, diaInt, el("span", { text: "Dia inteiro" })), horas, campo("Onde", local), el("div", { class: "duas" }, campo("Agenda", cal), campo("Lembrete", lem)), el("div", { class: "duas" }, campo("Repetir", repetir), blocoAte), aviso);
     const botoes = el("div", { class: "botoes" });
-    if (editando) botoes.append(el("button", { class: "btn perigo", type: "button", text: "Desmarcar", onclick: (e) => {
-      const b = e.currentTarget; if (b.dataset.ok !== "1") { b.dataset.ok = "1"; b.textContent = "Toque de novo para desmarcar"; return; }
+    if (editando && c.serie) botoes.append(el("button", { class: "btn", type: "button", text: "Só neste dia", onclick: (e) => {
+      const b = e.currentTarget; if (b.dataset.ok !== "1") { b.dataset.ok = "1"; b.textContent = "Desmarcar só " + J.rotuloDia(c.data).replace(/^.* · /, "") + "?"; return; }
+      A.pular(c.id, c.data); J.ui.fecharFolha(); J.ui.toast("Desmarcado só neste dia.");
+    } }));
+    if (editando) botoes.append(el("button", { class: "btn perigo", type: "button", text: c.serie ? "Todos" : "Desmarcar", onclick: (e) => {
+      const b = e.currentTarget; if (b.dataset.ok !== "1") { b.dataset.ok = "1"; b.textContent = c.serie ? "Desmarcar todas as repetições?" : "Toque de novo para desmarcar"; return; }
       A.remover(c.id); J.ui.fecharFolha(); J.ui.toast("Desmarcado, senhor.");
     } }));
     botoes.append(el("button", { class: "btn primario", type: "submit", text: editando ? "Salvar" : "Marcar" }));
     f.append(botoes);
     f.onsubmit = (e) => {
       e.preventDefault();
-      const novo = A.normalizar({ titulo: titulo.value, data: data.value, diaInteiro: diaInt.checked, inicio: ini.value, fim: fim.value, local: local.value, calendario: cal.value, lembrete: lem.value === "manter" ? lista : Number(lem.value) });
+      const dataSalvar = c.serie && data.value === c.data ? c.dataSerie : data.value;
+      const novo = A.normalizar({ repetir: repetir.value, ate: repetir.value ? ate.value : "", excecoes: c.excecoes || [], titulo: titulo.value, data: dataSalvar, diaInteiro: diaInt.checked, inicio: ini.value, fim: fim.value, local: local.value, calendario: cal.value, lembrete: lem.value === "manter" ? lista : Number(lem.value) });
       if (!A.valido(novo)) { aviso.hidden = false; aviso.textContent = "Preencha o que é, o dia e o horário."; return; }
       const cf = A.conflitos(novo, c.id);
       if (cf.length && f.dataset.conf !== "1") { f.dataset.conf = "1"; aviso.hidden = false; aviso.textContent = `Nesse horário já há: ${cf.map((o) => o.titulo).join(", ")}. Toque de novo para salvar assim mesmo.`; return; }

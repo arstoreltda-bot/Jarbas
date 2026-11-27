@@ -118,12 +118,14 @@ window.J = window.J || {};
     const inicio = J.instante(c.data, c.diaInteiro ? "08:00" : c.inicio);
     const redondo = (m) => m === 0 || (Number.isInteger(m) && (m < 60 || (m < 1440 && m % 15 === 0) || m % 1440 === 0));
     const partes = l.map((m) => {
-      if (redondo(m)) return J.rotuloLembrete(m).replace(/^aviso /, "");
+      if (redondo(m) && !(c.repetir && m >= 120 && m % 1440 !== 0)) return J.rotuloLembrete(m).replace(/^aviso /, "");
       const t = new Date(inicio - m * 60000);
       const p = new Intl.DateTimeFormat("en-CA", { timeZone: J.TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).formatToParts(t);
       const g = (k) => p.find((x) => x.type === k).value;
       const d = `${g("year")}-${g("month")}-${g("day")}`, h = `${g("hour") === "24" ? "00" : g("hour")}:${g("minute")}`;
-      const dia = J.rotuloDia(d).replace(/^(Hoje|Amanhã) · .*/, (x, a) => a.toLowerCase());
+      /* repete toda semana/mês: diz em relação ao dia ("na véspera às 16h") */
+      const dif = Math.round((J.dObj(c.data) - J.dObj(d)) / 86400000);
+      const dia = c.repetir ? (dif === 0 ? "no dia" : dif === 1 ? "na véspera" : `${dif} dias antes`) : J.rotuloDia(d).replace(/^(Hoje|Amanhã) · .*/, (x, a) => a.toLowerCase());
       return `${dia} às ${J.fmtH(h)}${g("second") !== "00" ? ` e ${Number(g("second"))} s` : ""}`;
     });
     return (partes.length > 1 ? "avisos " + partes.slice(0, -1).join(", ") + " e " + partes[partes.length - 1] : "aviso " + partes[0]);
