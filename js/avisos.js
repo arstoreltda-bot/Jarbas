@@ -10,6 +10,7 @@
   const MIN_ANTEC = 12000;                   // o ntfy exige pelo menos ~10 s
 
   S.ativo = () => !!J.store.get("ntfy.ativo", false);
+  S.repeticoes = () => Number(J.store.get("ntfy.repetir", 2)) || 0;
   S.topico = function () {
     let t = J.store.get("ntfy.topico", "");
     if (!t) {
@@ -27,7 +28,7 @@
   function hash(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); }
 
   /* envia uma notificação (agora ou agendada). Usa JSON na raiz do servidor (sem cabeçalhos especiais). */
-  S.publicar = async function ({ titulo, texto, quando, seq, prioridade = 4 }) {
+  S.publicar = async function ({ titulo, texto, quando, seq, prioridade = 5 }) {
     const corpo = { topic: S.topico(), title: titulo, message: texto, priority: prioridade, tags: ["bell"], click: location.href.split("#")[0].split("?")[0] };
     if (quando && quando - Date.now() > MIN_ANTEC) corpo.delay = String(Math.floor(quando / 1000));
     if (seq) corpo.sequence_id = seq;
@@ -70,6 +71,8 @@
           if (quando < agora + MIN_ANTEC || quando > agora + JANELA) return;
           const seq = "j" + hash([c.id, c.titulo, c.data, c.inicio, c.local, m].join("|")) + Math.round(m * 60);
           desejados[seq] = { quando, c, m };
+          /* repetições: o aviso volta a tocar a cada minuto, para não passar despercebido */
+          for (let k = 1; k <= S.repeticoes(); k++) desejados[seq + "r" + k] = { quando: quando + k * 60000, c, m, repeticao: k };
         });
       });
       const feitos = agendados();
@@ -81,8 +84,9 @@
       // agenda os novos
       for (const seq of Object.keys(desejados)) {
         if (feitos[seq]) continue;
-        const { quando, c, m } = desejados[seq];
+        const { quando, c, m, repeticao } = desejados[seq];
         const t = textoAviso(c, m);
+        if (repeticao) t.titulo = "🔔 " + t.titulo + " (de novo)";
         try { await S.publicar({ titulo: t.titulo, texto: t.texto, quando, seq }); feitos[seq] = { quando, id: c.id }; }
         catch (e) { break; } // sem internet: tenta de novo depois
       }
@@ -92,6 +96,8 @@
       if (deNovo) { deNovo = false; setTimeout(S.sincronizar, 500); }
     }
   };
+  /* refaz tudo (ex.: mudou o número de repetições) */
+  S.sincronizarTudo = function () { S.sincronizar(); };
   S.ligar = function (on) {
     J.store.set("ntfy.ativo", !!on);
     if (on) S.sincronizar();

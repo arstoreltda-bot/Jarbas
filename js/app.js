@@ -2,7 +2,7 @@
 "use strict";
 (function (J) {
   const $ = J.$, el = J.el, V = J.voz, G = J.gemini, A = J.agenda;
-  const VERSAO = "1.1.2";
+  const VERSAO = "1.1.3";
   const chat = $("chat"), entrada = $("entrada"), btnAcao = $("btn-acao");
   const ehIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const instalado = () => window.navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
@@ -95,7 +95,7 @@
     const p = { tipo: "confirmar", c, id };
     p.cartao = cartao(c, { alerta, botoes: [el("button", { class: "btn", type: "button", text: "Cancelar", onclick: () => recusar() }), el("button", { class: "btn primario", type: "button", text: id ? "Salvar alteração" : "Confirmar", onclick: () => confirmar() })] });
     pendente = p;
-    const lem = c.lembrete == null ? "" : c.lembrete === -1 ? ", sem aviso" : `, com ${J.rotuloAvisos(c)}`;
+    const lem = (c.lembrete == null ? "" : c.lembrete === -1 ? ", sem aviso" : `, com ${J.rotuloAvisos(c)}`) + (c.alarme && c.lembrete !== -1 ? ", tocando como alarme" : "");
     const frase = id ? `Vou alterar para ${c.titulo}, ${J.diaFrase(c.data)}, ${c.diaInteiro ? "o dia inteiro" : "às " + J.fmtH(c.inicio)}${lem}. Confirma, senhor?`
       : `Vou marcar ${c.titulo}, ${J.diaFrase(c.data)}, ${c.diaInteiro ? "o dia inteiro" : "às " + J.fmtH(c.inicio)}${lem}. ${alerta ? alerta + " " : ""}Confirma, senhor?`;
     return dizer(frase).then(() => porVoz && ouvirDeNovo());
@@ -129,6 +129,7 @@
     encerrarCartao(p, p.id ? "Alterado ✓" : "Anotado ✓", true);
     J.vibrar(15);
     const fala = dizer(p.id ? "Alterado, senhor." : variar(ANOTADO, "anotado"));
+    if (p.final.alarme) fala.then(() => oferecerAlarme(p.final, true));
     if (!J.avisos.ativo() && !J.store.get("dica.ntfy")) { J.store.set("dica.ntfy", true); bolha("jarbas", "Dica: para o lembrete tocar mesmo com o Jarbas fechado e a tela bloqueada, ative em Ajustes › Lembretes.", "tecnico"); }
     return fala;
   }
@@ -165,6 +166,8 @@
         const anterior = pendente && pendente.c;
         let c = A.normalizar(Object.assign({}, base || {}, r.compromisso || {}));
         if (c.lembrete == null && base) c.lembrete = base.lembrete;
+        if ((r.compromisso || {}).alarme == null && base) c.alarme = !!base.alarme;
+        if (r.alarme === true || (anterior && anterior.alarme && pendente.tipo === "confirmar")) c.alarme = true;
         if (c.lembrete == null && anterior && anterior.lembrete != null && pendente.tipo === "confirmar") c.lembrete = anterior.lembrete;
         const rc = r.compromisso || {};
         juntarAvisos(c, avisosExtras(c, rc.avisosDaqui != null ? rc.avisosDaqui : r.avisosDaqui, rc.avisosEm != null ? rc.avisosEm : r.avisosEm));
@@ -187,6 +190,7 @@
         if (m == null) { await dizer("Perdão, senhor. Quanto tempo antes devo lembrá-lo? Por exemplo, 30 minutos antes ou um dia antes."); return porVoz && ouvirDeNovo(); }
         const p = pendente; if (p.chips) p.chips.remove(); p.cartao.remove(); pendente = null;
         p.c.lembrete = m;
+        if (r.alarme === true || /alarme|despert/i.test(r.transcricao || "")) p.c.alarme = true;
         return pedirConfirmacao(p.c, p.id, porVoz);
       }
       case "naoentendi": await dizer("Perdão, senhor, não consegui ouvir bem. Pode repetir?"); return porVoz && ouvirDeNovo();
@@ -321,6 +325,62 @@
   function pintarVoz() { const on = V.ligada(); $("btn-voz").setAttribute("aria-pressed", String(on)); $("btn-voz").setAttribute("aria-label", on ? "Voz do Jarbas ligada" : "Voz do Jarbas desligada"); }
   $("btn-voz").onclick = () => { const on = !V.ligada(); J.store.set("voz.ligada", on); pintarVoz(); if (!on) V.calar(); else { V.destravar(); V.falar("Voz ligada, senhor."); } J.ui.toast(on ? "Voz ligada" : "Voz desligada"); };
 
+  /* ================= alarme de verdade (app Relógio, via Atalho do iPhone) ================= */
+  const ATALHO = "Jarbas Alarme";
+  /* próximo aviso do compromisso (ou o início), ainda no futuro */
+  function horaAlarme(c) {
+    if (!A.valido(c) || c.lembrete === -1) return null;
+    const inicio = J.instante(c.data, c.diaInteiro ? "08:00" : c.inicio), agora = Date.now() + 60000;
+    const ts = J.listaLembretes(c.lembrete).map((m) => inicio - m * 60000).concat([inicio]).filter((t) => t > agora).sort((a, b) => a - b);
+    return ts.length ? ts[0] : null;
+  }
+  const hhmm = (t) => { const d = new Date(t - 3 * 3600000); return String(d.getUTCHours()).padStart(2, "0") + ":" + String(d.getUTCMinutes()).padStart(2, "0"); };
+  const chaveAlarme = (c, t) => c.id + "@" + t;
+  function abrirAtalho(hora, rotulo) {
+    location.href = `shortcuts://run-shortcut?name=${encodeURIComponent(ATALHO)}&input=text&text=${encodeURIComponent(hora + "|" + rotulo)}`;
+  }
+  function oferecerAlarme(c, recemSalvo) {
+    const t = horaAlarme(c); if (!t) return;
+    const ofertas = J.store.get("alarme.oferecidos", {});
+    const k = chaveAlarme(c, t);
+    if (t - Date.now() > 23.5 * 3600000) {
+      if (recemSalvo) bolha("jarbas", `Os avisos já vão tocar como urgentes e repetidos. O alarme do Relógio só pode ser marcado para as próximas 24 horas, então eu peço para marcá-lo na véspera, quando o senhor abrir o Jarbas.`, "tecnico");
+      return;
+    }
+    if (ofertas[k] && !recemSalvo) return;
+    ofertas[k] = Date.now(); J.store.set("alarme.oferecidos", ofertas);
+    const hora = hhmm(t);
+    const b = el("button", { class: "btn primario", type: "button", text: `⏰ Pôr alarme às ${J.fmtH(hora)}`, onclick: () => {
+      if (!J.store.get("atalho.ok")) return mostrarAtalho(() => abrirAtalho(hora, c.titulo));
+      b.textContent = "Abrindo o Atalhos…"; abrirAtalho(hora, c.titulo);
+    } });
+    const caixa = el("div", { class: "msg jarbas" }, el("div", { text: `Para tocar como alarme de verdade, toque abaixo e eu crio o alarme no Relógio (${c.titulo}).` }), el("div", { class: "acoes", style: "margin-top:10px" }, b));
+    chat.append(caixa); rolar();
+  }
+  /* ao abrir o app: oferece o alarme dos compromissos com alarme que entraram nas próximas 24 h */
+  function revisarAlarmes() { A.lista().filter((c) => c.alarme).forEach((c) => oferecerAlarme(c, false)); }
+  function mostrarAtalho(depois) {
+    const raiz = $("inicio"); raiz.hidden = false;
+    const fechar = () => { raiz.hidden = true; raiz.replaceChildren(); if (telaAtual === "ajustes") renderAjustes(); };
+    const pronto = el("button", { class: "btn primario", type: "button", text: "Já criei. Testar (alarme em 2 min)", onclick: () => {
+      J.store.set("atalho.ok", true); fechar();
+      if (depois) depois(); else abrirAtalho(hhmm(Date.now() + 120000), "Teste do Jarbas");
+    } });
+    raiz.replaceChildren(el("div", { class: "inicio-in" },
+      el("div", { class: "orbe" }, el("i")),
+      el("h2", { text: "Alarme de verdade" }),
+      el("p", { class: "lead", text: "Uma vez só. Crio o alarme no app Relógio pelo app Atalhos (já vem no iPhone). Ele toca como despertador, mesmo no silencioso." }),
+      el("ol", { class: "passos" },
+        el("li", { html: `<span>Abra o app <b>Atalhos</b>, toque no <b>+</b> e dê o nome <b>${ATALHO}</b> (exatamente assim).</span>` }),
+        el("li", { html: `<span>Toque em <b>Adicionar Ação</b>, busque <b>Dividir Texto</b> e adicione. Toque em <b>Texto</b> e escolha <b>Entrada do Atalho</b>. Em <b>Novas Linhas</b>, escolha <b>Personalizado</b> e digite <b>|</b> (barra em pé).</span>` }),
+        el("li", { html: `<span>Adicione <b>Obter Item da Lista</b> (deixe <b>Primeiro Item</b>). Depois adicione outra <b>Obter Item da Lista</b>, escolha <b>Último Item</b> e, em <b>Lista</b>, escolha <b>Texto Dividido</b>.</span>` }),
+        el("li", { html: `<span>Adicione <b>Criar Alarme</b> (do Relógio). Em <b>Hora</b>, toque e escolha a variável <b>Item da Lista</b> (o primeiro). Em <b>Rótulo</b>, escolha o segundo <b>Item da Lista</b>.</span>` }),
+        el("li", { html: `<span>Se o Atalhos perguntar de onde recebe a entrada, deixe <b>Texto</b>. Toque em <b>OK</b> para salvar e volte aqui.</span>` })),
+      pronto,
+      el("p", { class: "fraco", text: "Na primeira vez, o iPhone pergunta se o Atalhos pode mexer no Relógio: toque em Permitir. Depois, cada alarme é criado com um toque." }),
+      el("button", { class: "ligacao", type: "button", text: "Agora não", onclick: fechar })));
+  }
+
   /* ================= lembretes ================= */
   let avisoAtual = null;
   function avisar(c, quando) {
@@ -335,7 +395,8 @@
   $("aviso-ok").onclick = () => { $("aviso").hidden = true; avisoAtual = null; };
   const verificar = () => A.verificarLembretes(avisar);
   setInterval(verificar, 2000);
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) { verificar(); contador(); J.avisos.sincronizar(); if (telaAtual === "agenda") A.render(); } });
+  setTimeout(revisarAlarmes, 4000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { verificar(); contador(); revisarAlarmes(); J.avisos.sincronizar(); if (telaAtual === "agenda") A.render(); } });
 
   /* ================= ajustes ================= */
   function interruptor(ligado, aoMudar, rotulo) {
@@ -373,6 +434,8 @@
     };
     const avisos = el("div", { class: "grupo" },
       linha("Avisos com o app fechado", avOn ? "Ligado: os lembretes chegam pelo app ntfy, mesmo com a tela bloqueada" : "Chegam mesmo com o Jarbas fechado e a tela bloqueada", interruptor(avOn, (v) => { AV.ligar(v); renderAjustes(); J.ui.toast(v ? "Avisos ligados" : "Avisos desligados"); }, "Avisos com o app fechado")),
+      linha("Repetir o aviso", "Toca de novo a cada minuto, para não passar despercebido", selecao([["0", "Não repetir"], ["1", "1 vez"], ["2", "2 vezes"], ["3", "3 vezes"], ["5", "5 vezes"]], String(AV.repeticoes()), (v) => { J.store.set("ntfy.repetir", Number(v)); AV.sincronizarTudo(); }, "Repetir o aviso")),
+      linha("Alarme do Relógio", J.store.get("atalho.ok") ? "Pronto: peça \"com alarme\" e eu crio no Relógio" : "Para tocar como despertador (uma vez só)", el("button", { class: "btn", type: "button", text: J.store.get("atalho.ok") ? "Testar" : "Configurar", onclick: () => J.store.get("atalho.ok") ? abrirAtalho(hhmm(Date.now() + 120000), "Teste do Jarbas") : mostrarAtalho() })),
       linha("Passo a passo", "Instalar o ntfy e ligar ao Jarbas (uma vez só)", el("button", { class: "btn", type: "button", text: "Ver", onclick: mostrarNtfy })),
       linha("Testar agora", null, el("button", { class: "btn", type: "button", text: "Enviar", onclick: testar(0) })),
       linha("Testar com a tela bloqueada", "Chega em 30 segundos", el("button", { class: "btn", type: "button", text: "Agendar", onclick: testar(30) })), msgAv);

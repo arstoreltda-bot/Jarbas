@@ -21,6 +21,7 @@
     c.calendario = /trabalho/i.test(c.calendario) ? "Trabalho" : "Pessoal";
     c.local = String(c.local || "").trim().slice(0, 120);
     c.lembrete = A.normalizarLembrete(c.lembrete);
+    c.alarme = !!c.alarme;
     return c;
   };
   /* null = não informado · -1 = sem aviso · [minutos antes...] (aceita número, texto ou lista) */
@@ -33,7 +34,7 @@
   };
   A.valido = (c) => !!(c && c.titulo && /^\d{4}-\d{2}-\d{2}$/.test(c.data || "") && (c.diaInteiro || /^\d{2}:\d{2}$/.test(c.inicio || "")));
 
-  function campos(c) { return { titulo: c.titulo, data: c.data, inicio: c.inicio, fim: c.fim, diaInteiro: c.diaInteiro, local: c.local, calendario: c.calendario, lembrete: c.lembrete == null ? [60] : c.lembrete }; }
+  function campos(c) { return { titulo: c.titulo, data: c.data, inicio: c.inicio, fim: c.fim, diaInteiro: c.diaInteiro, local: c.local, calendario: c.calendario, lembrete: c.lembrete == null ? [60] : c.lembrete, alarme: !!c.alarme }; }
   A.salvar = (c) => { const d = J.store.inserir(COL, campos(A.normalizar(c))); A.mudou(); return d; };
   A.alterar = (id, c) => { const d = J.store.atualizar(COL, id, campos(A.normalizar(c))); limparAviso(id); A.mudou(); return d; };
   A.remover = (id) => { J.store.remover(COL, id); limparAviso(id); A.mudou(); };
