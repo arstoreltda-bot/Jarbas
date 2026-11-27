@@ -201,14 +201,19 @@
     try {
       if (V.modo() === "premium" && J.gemini.temChave() && J.store.get("gemini.temVoz", true) !== false && Date.now() > premiumPausadoAte) {
         try {
-          const audio = await Promise.race([J.gemini.falar(t, V.vozPremium()), J.sleep(6000).then(() => { throw new Error("demorou"); })]);
+          const audio = await Promise.race([J.gemini.falar(t, V.vozPremium()), J.sleep(10000).then(() => { throw new Error("demorou"); })]);
           if (meu !== filaId) return;
+          V._avisouTroca = false;
           await tocarPcm(audio, meu);
           return;
         } catch (e) {
           if (meu !== filaId) return;
-          if (e && e.tipo === "limite") premiumPausadoAte = Date.now() + 10 * 60000; // cota da voz premium: usa a do iPhone por 10 min
+          let motivo = "a voz Premium falhou agora";
+          if (e && e.tipo === "limite") { premiumPausadoAte = Date.now() + 15 * 60000; motivo = "acabou a cota grátis da voz Premium por enquanto"; }
           else if (e && (e.tipo === "modelo" || e.tipo === "api")) premiumPausadoAte = Date.now() + 30 * 60000;
+          else if (e && e.message === "demorou") motivo = "a voz Premium demorou demais";
+          /* avisa (uma vez a cada troca) por que a voz mudou */
+          if (V.onTroca && !V._avisouTroca) { V._avisouTroca = true; V.onTroca(motivo); }
         }
       }
       await falarIphone(t, meu);

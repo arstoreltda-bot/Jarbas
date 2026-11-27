@@ -2,7 +2,7 @@
 "use strict";
 (function (J) {
   const $ = J.$, el = J.el, V = J.voz, G = J.gemini, A = J.agenda;
-  const VERSAO = "1.0.11";
+  const VERSAO = "1.0.12";
   const chat = $("chat"), entrada = $("entrada"), btnAcao = $("btn-acao");
   const ehIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const instalado = () => window.navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
@@ -22,6 +22,7 @@
     $("estado").textContent = txt; $("estado").classList.toggle("ativo", estadoAtual !== "pronto");
     $("orbe").className = "orbe" + (estadoAtual !== "pronto" ? " " + estadoAtual : "");
   }
+  V.onTroca = (motivo) => bolha("jarbas", `Usando a voz do iPhone: ${motivo}. Volto para a Premium sozinho assim que der.`, "tecnico");
   V.onEstado = (falando) => { if (falando) estado("falando"); else if (estadoAtual === "falando") estado("pronto"); };
 
   /* ================= conversa ================= */
