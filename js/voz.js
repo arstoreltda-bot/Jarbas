@@ -8,7 +8,7 @@
   let gravando = false;
   V.destravar = function () {
     /* no meio de uma fala não mexe em nada: qualquer ajuste de áudio pode cortar a voz */
-    if (tocando && ctx && ctx.state === "running") return ctx;
+    if (tocando) return ctx;
     try {
       if (!gravando && !micStream && !tocando) sessao("playback"); // (nunca no meio de uma fala: trocar a sessão de áudio corta o som) toca mesmo com o iPhone no modo silencioso (iOS 17+)
       const A = window.AudioContext || window.webkitAudioContext;
@@ -276,7 +276,21 @@
         if (meu !== filaId) return res();
         tocando = { stop: () => { feito = true; clearInterval(vigia); speechSynthesis.cancel(); res(); } };
         speechSynthesis.speak(montar(t));
-        vigia = setInterval(() => { if (meu !== filaId || feito) return clearInterval(vigia); if (speechSynthesis.paused) { diag("fala pausada"); speechSynthesis.resume(); } }, 400);
+        let inicioVigia = Date.now(), parada = 0;
+        vigia = setInterval(() => {
+          if (meu !== filaId || feito) return clearInterval(vigia);
+          if (speechSynthesis.paused) { diag("fala pausada"); speechSynthesis.resume(); return; }
+          /* o iPhone às vezes corta a fala sem avisar: se calou antes do fim, continua de onde parou */
+          if (!speechSynthesis.speaking && !speechSynthesis.pending && Date.now() - inicioVigia > 800) {
+            if (++parada < 2) return;
+            parada = 0;
+            const resto = t.slice(pos).replace(/^[\s.,;:!?]+/, "");
+            if (tentativas < 3 && resto.trim().split(/\s+/).length >= 2 && pos > 0) {
+              tentativas++; diag("fala cortada em " + pos); inicioVigia = Date.now();
+              clearTimeout(limite); limite = setTimeout(ok, 2500 + resto.length * 85); speechSynthesis.speak(montar(resto));
+            } else ok();
+          } else parada = 0;
+        }, 400);
       } catch (e) { res(); }
     });
   }
