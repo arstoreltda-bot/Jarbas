@@ -8,7 +8,11 @@
   G.chave = () => J.store.get("gemini.chave", "");
   G.temChave = () => !!G.chave();
   G.salvarChave = (k) => J.store.set("gemini.chave", String(k || "").trim());
-  G.modelo = () => J.store.get("gemini.modelo", "gemini-flash-latest");
+  /* modelo rápido e com cota grátis boa; reservas se o Google estiver ocupado */
+  if (J.store.get("gemini.migr", 0) < 2) { J.store.set("gemini.modelo", "gemini-2.5-flash"); J.store.set("gemini.semPensar", true); J.store.set("gemini.migr", 2); }
+  G.modelo = () => J.store.get("gemini.modelo", "gemini-2.5-flash");
+  G.reservas = () => J.store.get("gemini.reservas", ["gemini-2.5-flash-lite", "gemini-2.0-flash"]);
+  let pausados = {}; // modelo -> até quando evitar (após limite/ocupado)
   G.modeloVoz = () => J.store.get("gemini.modeloVoz", "gemini-2.5-flash-preview-tts");
 
   class ErroIA extends Error { constructor(tipo, msg, status) { super(msg); this.tipo = tipo; this.status = status; } }
@@ -41,11 +45,11 @@
         signal: ctl.signal,
       });
     } catch (e) {
-      throw new ErroIA(e.name === "AbortError" ? "tempo" : "rede", e.message);
+      throw new ErroIA(e.name === "AbortError" ? "tempo" : (navigator.onLine === false ? "rede" : "tempo"), e.message);
     } finally { clearTimeout(t); }
     if (r.ok) return r.json();
     let det = ""; try { const j = await r.json(); det = (j.error && (j.error.message || j.error.status)) || ""; } catch (e) {}
-    if (r.status === 429) throw new ErroIA("limite", det, 429);
+    if (r.status === 429 || (r.status === 403 && /quota|RESOURCE_EXHAUSTED/i.test(det))) throw new ErroIA("limite", det, 429);
     if (r.status === 400 && /api.?key|API_KEY/i.test(det)) throw new ErroIA("chave", det, 400);
     if (r.status === 401 || r.status === 403) throw new ErroIA("chave", det, r.status);
     if (r.status === 404) throw new ErroIA("modelo", det, 404);
@@ -60,7 +64,7 @@
       const j = await chamar("models?pageSize=200", null, { timeout: 20000 });
       const nomes = (j.models || []).filter((m) => (m.supportedGenerationMethods || []).includes("generateContent")).map((m) => m.name.replace(/^models\//, ""));
       const versao = (n) => { const m = n.match(/gemini-(\d+(?:\.\d+)?)/); return m ? Number(m[1]) : 0; };
-      let texto = nomes.includes("gemini-flash-latest") ? "gemini-flash-latest" : null;
+      let texto = nomes.includes("gemini-2.5-flash") ? "gemini-2.5-flash" : null;
       if (!texto) {
         const flash = nomes.filter((n) => /^gemini-[\d.]+-flash$/.test(n)).sort((a, b) => versao(b) - versao(a));
         const qualquer = nomes.filter((n) => /flash/.test(n) && !/tts|image|live|audio|lite|thinking|exp/.test(n)).sort((a, b) => versao(b) - versao(a));
@@ -68,6 +72,7 @@
       }
       const tts = nomes.filter((n) => /flash/.test(n) && /tts/.test(n)).sort((a, b) => versao(b) - versao(a) || (/preview/.test(a) ? 1 : -1));
       J.store.set("gemini.modelo", texto);
+      J.store.set("gemini.reservas", ["gemini-2.5-flash-lite", "gemini-flash-lite-latest", "gemini-2.0-flash", "gemini-flash-latest"].filter((n) => nomes.includes(n) && n !== texto).slice(0, 2));
       if (tts[0]) J.store.set("gemini.modeloVoz", tts[0]);
       J.store.set("gemini.temVoz", !!tts[0]);
       return { modelo: texto, modeloVoz: tts[0] || null };
@@ -93,32 +98,43 @@
     throw new ErroIA("api", "JSON inválido");
   };
 
-  /* Pede uma resposta em JSON. partes = [{text}] e/ou [{inlineData:{mimeType,data}}] */
-  G.json = async function (sistema, partes, { temperatura = 0.4 } = {}) {
-    const modelo = G.modelo();
+  /* Pede uma resposta em JSON. partes = [{text}] e/ou [{inlineData:{mimeType,data}}]
+     Tenta o modelo principal; se o Google estiver ocupado ou no limite, usa um reserva na hora. */
+  G.json = async function (sistema, partes, { temperatura = 0.3 } = {}) {
+    const agora = Date.now();
+    const fila = [G.modelo()].concat(G.reservas()).filter((m, i, a) => a.indexOf(m) === i);
+    const ordem = fila.filter((m) => !(pausados[m] > agora)).concat(fila.filter((m) => pausados[m] > agora));
+    let ultimo;
+    for (const modelo of ordem) {
+      try { return await gerar(modelo, sistema, partes, temperatura); }
+      catch (e) {
+        ultimo = e;
+        if (e.tipo === "chave" || e.tipo === "semchave" || e.tipo === "rede") throw e;
+        if (e.tipo === "limite") pausados[modelo] = Date.now() + 60000;
+        else if (e.status >= 500 || e.tipo === "tempo") pausados[modelo] = Date.now() + 20000;
+        else if (e.tipo === "modelo") pausados[modelo] = Date.now() + 3600000;
+      }
+    }
+    throw ultimo;
+  };
+  async function gerar(modelo, sistema, partes, temperatura) {
     const corpo = {
       systemInstruction: { parts: [{ text: sistema }] },
       contents: [{ role: "user", parts: partes }],
-      generationConfig: { responseMimeType: "application/json", temperature: temperatura, maxOutputTokens: 2048 },
+      generationConfig: { responseMimeType: "application/json", temperature: temperatura, maxOutputTokens: 1024 },
     };
-    const semPensar = J.store.get("gemini.semPensar", true);
-    if (semPensar) corpo.generationConfig.thinkingConfig = { thinkingBudget: 0 };
+    const chaveSP = "gemini.semPensar." + modelo;
+    if (J.store.get(chaveSP, true) && /2\.5/.test(modelo)) corpo.generationConfig.thinkingConfig = { thinkingBudget: 0 };
     let j;
-    try {
-      j = await chamar(`models/${modelo}:generateContent`, corpo);
-    } catch (e) {
+    try { j = await chamar(`models/${modelo}:generateContent`, corpo, { timeout: 15000 }); }
+    catch (e) {
       if (e.tipo === "api" && e.status === 400 && corpo.generationConfig.thinkingConfig) {
-        // modelo não aceita desligar o raciocínio: tenta sem essa opção e lembra
-        delete corpo.generationConfig.thinkingConfig;
-        J.store.set("gemini.semPensar", false);
-        j = await chamar(`models/${modelo}:generateContent`, corpo);
-      } else if (e.tipo === "modelo" && modelo !== "gemini-2.5-flash") {
-        J.store.set("gemini.modelo", "gemini-2.5-flash");
-        return G.json(sistema, partes, { temperatura });
+        delete corpo.generationConfig.thinkingConfig; J.store.set(chaveSP, false);
+        j = await chamar(`models/${modelo}:generateContent`, corpo, { timeout: 15000 });
       } else throw e;
     }
     return G.lerJSON(textoDaResposta(j));
-  };
+  }
 
   /* Voz premium: transforma texto em fala (PCM 24 kHz). Retorna {pcm: Int16Array, taxa} */
   G.falar = async function (texto, voz) {

@@ -108,7 +108,7 @@
 
   /* ================= FALAR ================= */
   V.ligada = () => J.store.get("voz.ligada", true);
-  V.modo = () => J.store.get("voz.modo", "premium");       // "premium" (Google) | "iphone"
+  V.modo = () => J.store.get("voz.modo", "iphone");        // "iphone" (instantânea) | "premium" (Google, mais lenta)
   V.vozPremium = () => J.store.get("voz.premium", "Charon");
   V.vozIphone = () => J.store.get("voz.iphone", "");
   V.VOZES_PREMIUM = [["Charon", "Charon · grave e informativa"], ["Orus", "Orus · firme"], ["Iapetus", "Iapetus · clara"], ["Algenib", "Algenib · rouca"], ["Rasalgethi", "Rasalgethi · informativa"], ["Schedar", "Schedar · equilibrada"], ["Enceladus", "Enceladus · suave"], ["Fenrir", "Fenrir · animada"]];
@@ -156,7 +156,7 @@
     try {
       if (V.modo() === "premium" && J.gemini.temChave() && J.store.get("gemini.temVoz", true) !== false && Date.now() > premiumPausadoAte) {
         try {
-          const audio = await Promise.race([J.gemini.falar(t, V.vozPremium()), J.sleep(9000).then(() => { throw new Error("demorou"); })]);
+          const audio = await Promise.race([J.gemini.falar(t, V.vozPremium()), J.sleep(6000).then(() => { throw new Error("demorou"); })]);
           if (meu !== filaId) return;
           await tocarPcm(audio, meu);
           return;

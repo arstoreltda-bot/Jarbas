@@ -2,7 +2,7 @@
 "use strict";
 (function (J) {
   const $ = J.$, el = J.el, V = J.voz, G = J.gemini, A = J.agenda;
-  const VERSAO = "1.0.2";
+  const VERSAO = "1.0.3";
   const chat = $("chat"), entrada = $("entrada"), btnAcao = $("btn-acao");
   const ehIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const instalado = () => window.navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
@@ -25,7 +25,7 @@
   V.onEstado = (falando) => { if (falando) estado("falando"); else if (estadoAtual === "falando") estado("pronto"); };
 
   /* ================= conversa ================= */
-  let historico = J.store.get("conversa", []);
+  let historico = J.store.get("conversa", []).filter((h) => !/^Conectado, senhor/.test(h.texto || ""));
   const salvarHist = () => J.store.set("conversa", historico.slice(-60));
   function rolar() { const t = $("tela-conversa"); requestAnimationFrame(() => { t.scrollTop = t.scrollHeight; }); }
   function bolha(de, texto, extra) { const e = el("div", { class: "msg " + de + (extra ? " " + extra : ""), text: texto }); chat.append(e); rolar(); return e; }
@@ -310,7 +310,7 @@
     const premium = V.modo() === "premium";
     const voz = el("div", { class: "grupo" },
       linha("Responder em voz", null, interruptor(V.ligada(), (v) => { J.store.set("voz.ligada", v); pintarVoz(); if (!v) V.calar(); }, "Responder em voz")),
-      linha("Tipo de voz", premium ? "Voz natural do Google (usa a cota grátis)" : "Voz instalada no iPhone (instantânea)", selecao([["premium", "Premium"], ["iphone", "Do iPhone"]], V.modo(), (v) => { J.store.set("voz.modo", v); renderAjustes(); }, "Tipo de voz")),
+      linha("Tipo de voz", premium ? "Mais natural, porém demora alguns segundos e tem cota diária" : "Responde na hora", selecao([["premium", "Premium"], ["iphone", "Do iPhone"]], V.modo(), (v) => { J.store.set("voz.modo", v); renderAjustes(); }, "Tipo de voz")),
       premium ? linha("Voz premium", null, selecao(V.VOZES_PREMIUM, V.vozPremium(), (v) => { J.store.set("voz.premium", v); testarVoz(); }, "Voz premium"))
         : linha("Voz do iPhone", vozes.length ? null : "Nenhuma voz em português encontrada", selecao([["", "Automática"]].concat(vozes.map((v) => [v.name, v.name + (V.masculina(v) ? " ♂" : "")])), V.vozIphone(), (v) => { J.store.set("voz.iphone", v); testarVoz(); }, "Voz do iPhone")),
       premium ? null : linha("Jeito de falar", null, selecao([["ia", "Assistente de IA"], ["natural", "Natural"], ["grave", "Grave e calmo"]], J.store.get("voz.estilo", "ia"), (v) => { J.store.set("voz.estilo", v); testarVoz(); }, "Jeito de falar")),
@@ -386,7 +386,7 @@
       try {
         await G.configurar(k);
         fechar(); renderAjustes(); V.destravar();
-        dizer("Conectado, senhor. Agora posso ouvi-lo e conversar. Toque no microfone dourado quando quiser.");
+        dizer("Conectado, senhor. Estou pronto.", { guardar: false });
       } catch (e) {
         botao.disabled = false; botao.textContent = "Conectar o Jarbas"; msg.style.color = "var(--alerta)";
         msg.textContent = e.tipo === "chave" ? "O Google recusou essa chave. Confira se copiou inteira." : e.tipo === "rede" ? "Sem internet. Tente de novo." : "Não deu certo agora (" + (e.message || "erro") + "). Tente de novo.";

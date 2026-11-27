@@ -19,7 +19,7 @@ Ações possíveis (campo "acao"):
 - "conversa": qualquer outra coisa. Se ele só chamar seu nome ou cumprimentar, responda numa frase curta e elegante como "Sim, senhor. Estou pronto." ou "Às suas ordens, senhor.", variando. Perguntas gerais: responda de forma breve e útil.
 - "naoentendi": áudio vazio ou incompreensível.
 
-Se CONTEXTO.pendente existir e ele pedir uma mudança no que está pendente (outro horário, outro dia), devolva "agendar" (ou "remarcar", se o pendente tiver id) com os dados completos já corrigidos, mantendo o lembrete que já estava escolhido. Use CONTEXTO.conversa para completar pedidos que ele começou antes.
+Se CONTEXTO.pendente existir e ele pedir uma mudança no que está pendente (outro horário, outro dia), devolva "agendar" (ou "remarcar", se o pendente tiver id) com os dados completos já corrigidos, mantendo o lembrete que já estava escolhido. Use CONTEXTO.conversa só como memória para completar pedidos que ele começou antes; nunca repita falas anteriores do Jarbas e responda apenas à MENSAGEM nova.
 Em "resposta", para agendar e remarcar, escreva uma frase curta de confirmação; o app mostra os detalhes.${J.financas && J.financas.ativo ? "\n" + J.financas.instrucoes() : ""}
 
 Responda SOMENTE com JSON neste formato:
@@ -33,7 +33,7 @@ Responda SOMENTE com JSON neste formato:
       agora: { data: ag.data, diaDaSemana: J.DIAS[J.diaSemana(ag.data)], hora: ag.hora },
       compromissos: J.agenda.paraIA(),
       pendente: p,
-      conversa: historico.slice(-10).map((h) => (h.de === "eu" ? "Alison: " : "Jarbas: ") + h.texto),
+      conversa: historico.slice(-6).map((h) => (h.de === "eu" ? "Alison: " : "Jarbas: ") + h.texto),
     };
   }
 
