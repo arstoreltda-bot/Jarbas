@@ -2,7 +2,7 @@
 "use strict";
 (function (J) {
   const $ = J.$, el = J.el, V = J.voz, G = J.gemini, A = J.agenda;
-  const VERSAO = "1.0.12";
+  const VERSAO = "1.1.0";
   const chat = $("chat"), entrada = $("entrada"), btnAcao = $("btn-acao");
   const ehIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const instalado = () => window.navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
@@ -95,7 +95,7 @@
     const p = { tipo: "confirmar", c, id };
     p.cartao = cartao(c, { alerta, botoes: [el("button", { class: "btn", type: "button", text: "Cancelar", onclick: () => recusar() }), el("button", { class: "btn primario", type: "button", text: id ? "Salvar alteração" : "Confirmar", onclick: () => confirmar() })] });
     pendente = p;
-    const lem = c.lembrete == null ? "" : c.lembrete < 0 ? ", sem aviso" : `, com ${J.rotuloLembrete(c.lembrete)}`;
+    const lem = c.lembrete == null ? "" : c.lembrete === -1 ? ", sem aviso" : `, com ${J.rotuloLembrete(c.lembrete)}`;
     const frase = id ? `Vou alterar para ${c.titulo}, ${J.diaFrase(c.data)}, ${c.diaInteiro ? "o dia inteiro" : "às " + J.fmtH(c.inicio)}${lem}. Confirma, senhor?`
       : `Vou marcar ${c.titulo}, ${J.diaFrase(c.data)}, ${c.diaInteiro ? "o dia inteiro" : "às " + J.fmtH(c.inicio)}${lem}. ${alerta ? alerta + " " : ""}Confirma, senhor?`;
     return dizer(frase).then(() => porVoz && ouvirDeNovo());
@@ -128,7 +128,9 @@
     A.irPara(p.final.data);
     encerrarCartao(p, p.id ? "Alterado ✓" : "Anotado ✓", true);
     J.vibrar(15);
-    return dizer(p.id ? "Alterado, senhor." : variar(ANOTADO, "anotado"));
+    const fala = dizer(p.id ? "Alterado, senhor." : variar(ANOTADO, "anotado"));
+    if (!J.avisos.ativo() && !J.store.get("dica.ntfy")) { J.store.set("dica.ntfy", true); bolha("jarbas", "Dica: para o lembrete tocar mesmo com o Jarbas fechado e a tela bloqueada, ative em Ajustes › Lembretes.", "tecnico"); }
+    return fala;
   }
   function recusar() {
     const p = pendente; if (!p) return dizer("Perfeitamente, senhor.");
@@ -161,11 +163,11 @@
       case "confirmar": return confirmar();
       case "recusar": return recusar();
       case "lembrete": {
-        const m = Number(r.minutos);
+        const m = A.normalizarLembrete(r.minutos);
         if (!pendente || pendente.tipo !== "lembrete") return dizer(resp || variar(PRONTO, "pronto"));
-        if (r.minutos == null || isNaN(m)) { await dizer("Perdão, senhor. Quanto tempo antes devo lembrá-lo? Por exemplo, 30 minutos antes ou um dia antes."); return porVoz && ouvirDeNovo(); }
+        if (m == null) { await dizer("Perdão, senhor. Quanto tempo antes devo lembrá-lo? Por exemplo, 30 minutos antes ou um dia antes."); return porVoz && ouvirDeNovo(); }
         const p = pendente; if (p.chips) p.chips.remove(); p.cartao.remove(); pendente = null;
-        p.c.lembrete = Math.max(-1, Math.min(43200, m));
+        p.c.lembrete = m;
         return pedirConfirmacao(p.c, p.id, porVoz);
       }
       case "naoentendi": await dizer("Perdão, senhor, não consegui ouvir bem. Pode repetir?"); return porVoz && ouvirDeNovo();
@@ -294,7 +296,7 @@
   J.ui.mostrar = mostrar;
   document.querySelectorAll("#abas button").forEach((b) => (b.onclick = () => mostrar(b.dataset.tela)));
   function contador() { const n = A.lista().filter((c) => c.data >= J.agora().data).length; $("contador").hidden = !n; $("contador").textContent = n > 99 ? "99+" : String(n); }
-  A.onMudou = () => { contador(); if (telaAtual === "agenda") A.render(); };
+  A.onMudou = () => { contador(); if (telaAtual === "agenda") A.render(); J.avisos.sincronizar(); if (telaAtual === "ajustes") renderAjustes(); };
 
   /* botão de voz no topo */
   function pintarVoz() { const on = V.ligada(); $("btn-voz").setAttribute("aria-pressed", String(on)); $("btn-voz").setAttribute("aria-label", on ? "Voz do Jarbas ligada" : "Voz do Jarbas desligada"); }
@@ -314,7 +316,7 @@
   $("aviso-ok").onclick = () => { $("aviso").hidden = true; avisoAtual = null; };
   const verificar = () => A.verificarLembretes(avisar);
   setInterval(verificar, 10000);
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) { verificar(); contador(); if (telaAtual === "agenda") A.render(); } });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { verificar(); contador(); J.avisos.sincronizar(); if (telaAtual === "agenda") A.render(); } });
 
   /* ================= ajustes ================= */
   function interruptor(ligado, aoMudar, rotulo) {
@@ -342,6 +344,19 @@
       linha("Ouvir um exemplo", null, el("button", { class: "btn", type: "button", text: "Ouvir", onclick: testarVoz })),
       linha("Conversa contínua", "Quando eu fizer uma pergunta, o microfone abre sozinho", interruptor(J.store.get("voz.continua", true), (v) => J.store.set("voz.continua", v), "Conversa contínua")));
 
+    const AV = J.avisos, avOn = AV.ativo();
+    const msgAv = el("small", { text: "" });
+    const testar = (seg) => async (e) => {
+      const b = e.currentTarget; b.disabled = true;
+      try { await AV.teste(seg); J.ui.toast(seg ? `Aviso de teste chega em ${seg} s. Pode bloquear a tela.` : "Aviso de teste enviado"); }
+      catch (err) { J.ui.toast("Não consegui enviar. Confira a internet."); }
+      b.disabled = false;
+    };
+    const avisos = el("div", { class: "grupo" },
+      linha("Avisos com o app fechado", avOn ? "Ligado: os lembretes chegam pelo app ntfy, mesmo com a tela bloqueada" : "Chegam mesmo com o Jarbas fechado e a tela bloqueada", interruptor(avOn, (v) => { AV.ligar(v); renderAjustes(); J.ui.toast(v ? "Avisos ligados" : "Avisos desligados"); }, "Avisos com o app fechado")),
+      linha("Passo a passo", "Instalar o ntfy e ligar ao Jarbas (uma vez só)", el("button", { class: "btn", type: "button", text: "Ver", onclick: mostrarNtfy })),
+      linha("Testar agora", null, el("button", { class: "btn", type: "button", text: "Enviar", onclick: testar(0) })),
+      linha("Testar com a tela bloqueada", "Chega em 30 segundos", el("button", { class: "btn", type: "button", text: "Agendar", onclick: testar(30) })), msgAv);
     const inputArq = el("input", { type: "file", accept: "application/json,.json", hidden: true, onchange: importar });
     const dados = el("div", { class: "grupo" },
       linha("Fazer backup", "Salva agenda e ajustes num arquivo", el("button", { class: "btn", type: "button", text: "Exportar", onclick: exportar })),
@@ -358,6 +373,7 @@
     raiz.replaceChildren(
       el("div", { class: "secao" }, el("h3", { text: "Cérebro" }), cerebro),
       el("div", { class: "secao" }, el("h3", { text: "Voz" }), voz),
+      el("div", { class: "secao" }, el("h3", { text: "Lembretes" }), avisos),
       el("div", { class: "secao" }, el("h3", { text: "Seus dados (ficam só neste iPhone)" }), dados),
       el("div", { class: "secao" }, el("h3", { text: "Aplicativo" }), app),
       el("p", { class: "rodape", text: `Jarbas ${VERSAO} · seu assistente pessoal` }));
@@ -380,6 +396,34 @@
     r.onload = () => { try { J.store.importar(JSON.parse(r.result)); J.ui.toast("Backup restaurado"); setTimeout(() => location.reload(), 700); } catch (err) { J.ui.toast(err.message || "Arquivo inválido"); } };
     r.readAsText(f); e.target.value = "";
   }
+
+  /* ================= passo a passo do ntfy ================= */
+  function mostrarNtfy() {
+    const AV = J.avisos, topico = AV.topico();
+    const raiz = $("inicio"); raiz.hidden = false;
+    const fechar = () => { raiz.hidden = true; raiz.replaceChildren(); if (telaAtual === "ajustes") renderAjustes(); };
+    const copiar = el("button", { class: "btn", type: "button", text: "Copiar meu canal", onclick: async (e) => {
+      try { await navigator.clipboard.writeText(topico); e.currentTarget.textContent = "Copiado ✓"; } catch (err) { J.ui.toast(topico); }
+    } });
+    const testar = el("button", { class: "btn primario", type: "button", text: "Enviar aviso de teste", onclick: async (e) => {
+      const b = e.currentTarget; b.disabled = true;
+      try { AV.ligar(true); await AV.teste(0); b.textContent = "Enviado. Chegou no iPhone?"; J.vibrar(15); }
+      catch (err) { b.disabled = false; b.textContent = "Sem internet. Tentar de novo"; }
+    } });
+    raiz.replaceChildren(el("div", { class: "inicio-in" },
+      el("div", { class: "orbe" }, el("i")),
+      el("h2", { text: "Avisos com o app fechado" }),
+      el("p", { class: "lead", text: "Uma vez só. Depois disso, os lembretes chegam com som, mesmo com a tela bloqueada." }),
+      el("ol", { class: "passos" },
+        el("li", { html: `<span>Instale o app grátis <b>ntfy</b> na App Store: <a href="https://apps.apple.com/app/ntfy/id1625396347" target="_blank" rel="noopener">abrir na App Store</a>. Abra-o e toque em <b>Permitir</b> notificações.</span>` }),
+        el("li", { html: `<span>Toque em <b>Copiar meu canal</b> aqui embaixo. Seu canal é <b>${topico}</b> (é secreto, não compartilhe).</span>` }),
+        el("li", { html: `<span>No ntfy, toque no <b>+</b> (no alto, à direita), cole o canal em <b>Topic</b>, deixe o servidor padrão (ntfy.sh) e toque em <b>Subscribe</b>.</span>` }),
+        el("li", { html: `<span>Volte aqui e toque em <b>Enviar aviso de teste</b>. Se a notificação chegar, está tudo pronto.</span>` })),
+      copiar, testar,
+      el("p", { class: "fraco", text: "Os avisos são agendados até 3 dias à frente; os mais distantes, o Jarbas agenda sozinho quando o senhor o abre." }),
+      el("button", { class: "ligacao", type: "button", text: "Concluir", onclick: fechar })));
+  }
+  J.ui.mostrarNtfy = mostrarNtfy;
 
   /* ================= primeira vez: instalar e chave ================= */
   const ICO_COMP = '<svg viewBox="0 0 24 24"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>';
@@ -447,7 +491,7 @@
 
   /* ================= início ================= */
   function iniciar() {
-    pintarVoz(); contador(); G.revisar();
+    pintarVoz(); contador(); G.revisar(); J.avisos.sincronizar();
     const recentes = historico.slice(-16);
     let ultimoDia = "";
     recentes.forEach((h) => {

@@ -20,13 +20,20 @@
     if (!c.diaInteiro && c.inicio && (!c.fim || c.fim <= c.inicio)) c.fim = J.addMin(c.inicio, 60);
     c.calendario = /trabalho/i.test(c.calendario) ? "Trabalho" : "Pessoal";
     c.local = String(c.local || "").trim().slice(0, 120);
-    const l = c.lembrete;
-    c.lembrete = l === null || l === undefined || l === "" || isNaN(Number(l)) ? null : Math.max(-1, Math.min(43200, Number(l)));
+    c.lembrete = A.normalizarLembrete(c.lembrete);
     return c;
+  };
+  /* null = não informado · -1 = sem aviso · [minutos antes...] (aceita número, texto ou lista) */
+  A.normalizarLembrete = function (l) {
+    if (l === null || l === undefined || l === "") return null;
+    const arr = (Array.isArray(l) ? l : [l]).map(Number).filter((x) => !isNaN(x));
+    if (!arr.length) return null;
+    const bons = [...new Set(arr.filter((x) => x >= 0).map((x) => Math.min(43200, Math.round(x * 1000) / 1000)))].sort((a, b) => b - a);
+    return bons.length ? bons : -1;
   };
   A.valido = (c) => !!(c && c.titulo && /^\d{4}-\d{2}-\d{2}$/.test(c.data || "") && (c.diaInteiro || /^\d{2}:\d{2}$/.test(c.inicio || "")));
 
-  function campos(c) { return { titulo: c.titulo, data: c.data, inicio: c.inicio, fim: c.fim, diaInteiro: c.diaInteiro, local: c.local, calendario: c.calendario, lembrete: c.lembrete == null ? 60 : c.lembrete }; }
+  function campos(c) { return { titulo: c.titulo, data: c.data, inicio: c.inicio, fim: c.fim, diaInteiro: c.diaInteiro, local: c.local, calendario: c.calendario, lembrete: c.lembrete == null ? [60] : c.lembrete }; }
   A.salvar = (c) => { const d = J.store.inserir(COL, campos(A.normalizar(c))); A.mudou(); return d; };
   A.alterar = (id, c) => { const d = J.store.atualizar(COL, id, campos(A.normalizar(c))); limparAviso(id); A.mudou(); return d; };
   A.remover = (id) => { J.store.remover(COL, id); limparAviso(id); A.mudou(); };
@@ -57,15 +64,21 @@
     const agora = Date.now(); const a = avisados(); let mudou = false;
     A.lista().forEach((c) => {
       if (!A.valido(c)) return;
-      const ante = (c.lembrete == null ? 60 : Number(c.lembrete)) * 60000; if (ante < 0) return;
       const inicio = J.instante(c.data, c.diaInteiro ? "08:00" : c.inicio);
-      const chave = c.id + "|" + c.data + "|" + (c.inicio || "dia") + "|" + c.lembrete;
-      if (a[chave] || agora < inicio - ante) return;
-      a[chave] = agora; mudou = true;
+      /* só o aviso mais recente que já chegou a hora (evita vários de uma vez) */
+      const vencidos = J.listaLembretes(c.lembrete).filter((m) => agora >= inicio - m * 60000);
+      if (!vencidos.length) return;
+      const m = Math.min(...vencidos);
+      const chave = c.id + "|" + c.data + "|" + (c.inicio || "dia") + "|" + m;
+      if (a[chave]) return;
+      vencidos.forEach((x) => (a[c.id + "|" + c.data + "|" + (c.inicio || "dia") + "|" + x] = agora)); mudou = true;
       if (agora > inicio + 20 * 60000) return; // já passou faz tempo: não incomoda
+      if (J.avisos && J.avisos.ativo() && agora > inicio - m * 60000 + 30 * 60000 && m > 0) return; // aviso antigo perdido: não toca atrasado
       const falta = Math.round((inicio - agora) / 60000);
+      const faltaS = Math.round((inicio - agora) / 1000);
       let quando;
       if (c.diaInteiro) quando = falta < 720 ? "hoje" : `em ${J.diaFrase(c.data)}`;
+      else if (faltaS > 5 && faltaS < 60) quando = `daqui a ${faltaS} segundos`;
       else if (falta <= 0) quando = falta < -1 ? `começou há ${-falta} minutos` : "agora";
       else if (falta < 60) quando = `daqui a ${falta} minuto${falta > 1 ? "s" : ""}`;
       else if (falta < 1440) { const h = Math.floor(falta / 60), m = falta % 60; quando = `daqui a ${h} hora${h > 1 ? "s" : ""}${m >= 5 ? ` e ${m} minutos` : ""}`; }
@@ -140,10 +153,12 @@
     const fim = el("input", { type: "time", value: c.fim || "" });
     const local = el("input", { type: "text", value: c.local || "", placeholder: "Opcional", maxlength: 120 });
     const cal = el("select", {}, el("option", { value: "Pessoal", text: "Pessoal" }), el("option", { value: "Trabalho", text: "Trabalho" })); cal.value = c.calendario || "Pessoal";
-    const lem = el("select", {}); const atual = c.lembrete == null ? 60 : Number(c.lembrete);
+    const lem = el("select", {}); const lista = J.listaLembretes(c.lembrete);
     LEMBRETES.forEach(([v, t]) => lem.append(el("option", { value: v, text: t })));
-    if (!LEMBRETES.some(([v]) => v === atual)) lem.append(el("option", { value: atual, text: J.rotuloLembrete(atual).replace(/^aviso /, "") }));
-    lem.value = String(atual);
+    let atual = lista.length ? String(lista[0]) : "-1";
+    if (lista.length > 1) { lem.append(el("option", { value: "manter", text: J.rotuloLembrete(lista).replace(/^avisos? /, "") })); atual = "manter"; }
+    else if (!LEMBRETES.some(([v]) => String(v) === atual)) lem.append(el("option", { value: atual, text: J.rotuloLembrete(Number(atual)).replace(/^aviso /, "") }));
+    lem.value = atual;
     const horas = el("div", { class: "duas" }, campo("Início", ini), campo("Fim", fim));
     const sync = () => { horas.hidden = diaInt.checked; }; diaInt.onchange = sync; sync();
     ini.onchange = () => { if (!fim.value || fim.value <= ini.value) fim.value = J.addMin(ini.value, 60); };
@@ -158,7 +173,7 @@
     f.append(botoes);
     f.onsubmit = (e) => {
       e.preventDefault();
-      const novo = A.normalizar({ titulo: titulo.value, data: data.value, diaInteiro: diaInt.checked, inicio: ini.value, fim: fim.value, local: local.value, calendario: cal.value, lembrete: Number(lem.value) });
+      const novo = A.normalizar({ titulo: titulo.value, data: data.value, diaInteiro: diaInt.checked, inicio: ini.value, fim: fim.value, local: local.value, calendario: cal.value, lembrete: lem.value === "manter" ? lista : Number(lem.value) });
       if (!A.valido(novo)) { aviso.hidden = false; aviso.textContent = "Preencha o que é, o dia e o horário."; return; }
       const cf = A.conflitos(novo, c.id);
       if (cf.length && f.dataset.conf !== "1") { f.dataset.conf = "1"; aviso.hidden = false; aviso.textContent = `Nesse horário já há: ${cf.map((o) => o.titulo).join(", ")}. Toque de novo para salvar assim mesmo.`; return; }

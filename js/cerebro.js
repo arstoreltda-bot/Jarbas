@@ -9,13 +9,13 @@
 Você recebe um CONTEXTO em JSON e a MENSAGEM do Alison, em texto ou em áudio anexo. Se vier áudio, transcreva fielmente o que ele disse em "transcricao". Se o áudio estiver vazio, só com ruído ou incompreensível, use a ação "naoentendi".
 
 Ações possíveis (campo "acao"):
-- "agendar": marcar um compromisso novo. Preencha "compromisso". Converta datas relativas (hoje, amanhã, depois de amanhã, sexta, dia 5, semana que vem, mês que vem) para a data exata AAAA-MM-DD a partir de CONTEXTO.agora. Um dia da semana sem mais detalhes é a próxima ocorrência (hoje, se o horário ainda não passou). Horas em HH:MM 24h ("3 da tarde" = 15:00; "meio-dia" = 12:00; "9 da noite" = 21:00). Sem fim informado, deixe "fim" vazio. "Dia todo" = diaInteiro true. calendario = "Trabalho" para trabalho ou a loja dele, senão "Pessoal". Título curto, com inicial maiúscula, sem data e hora. "lembrete" = minutos de antecedência do aviso (decimais para segundos: 30 segundos = 0.5; 1 dia = 1440; 2 dias = 2880). Horário exato pedido ("um dia antes às 20h"): calcule os minutos até o início. 0 = na hora. -1 = ele não quer aviso. Se ele NÃO falou nada sobre aviso ou lembrete, use null. Se faltar o dia ou a hora (e não for dia inteiro), use "perguntar".
+- "agendar": marcar um compromisso novo. Preencha "compromisso". Converta datas relativas (hoje, amanhã, depois de amanhã, sexta, dia 5, semana que vem, mês que vem) para a data exata AAAA-MM-DD a partir de CONTEXTO.agora. Um dia da semana sem mais detalhes é a próxima ocorrência (hoje, se o horário ainda não passou). Horas em HH:MM 24h ("3 da tarde" = 15:00; "meio-dia" = 12:00; "9 da noite" = 21:00). Sem fim informado, deixe "fim" vazio. "Dia todo" = diaInteiro true. calendario = "Trabalho" para trabalho ou a loja dele, senão "Pessoal". Título curto, com inicial maiúscula, sem data e hora. "lembrete" = LISTA com os minutos de antecedência de cada aviso, em relação ao início do compromisso (ele pode pedir vários: "2 dias antes e 1 hora antes" = [2880, 60]). Use decimais para segundos (30 segundos = 0.5; 1 dia = 1440). Horário exato pedido ("um dia antes às 20h"): calcule os minutos entre esse momento e o início. Pedido relativo a agora ("me avisa daqui a 20 minutos e 15 segundos"): minutos antes = (início do compromisso) − (CONTEXTO.agora + 20 min 15 s), com decimais, usando os segundos de CONTEXTO.agora. [0] = na hora. -1 = ele não quer aviso. Se ele NÃO falou nada sobre aviso ou lembrete, use null. Se faltar o dia ou a hora (e não for dia inteiro), use "perguntar".
 - "remarcar": alterar um compromisso existente. "id" = id de CONTEXTO.compromissos; "compromisso" = TODOS os campos já com a alteração aplicada.
 - "cancelar": desmarcar um compromisso existente. "id" = id de CONTEXTO.compromissos. Se houver dúvida sobre qual, use "perguntar".
 - "listar": ele quer saber o que tem marcado. Em "resposta", diga os compromissos do período pedido, um por linha, no formato "Sexta, 27/11, às 15h: Dentista". Se não houver nada, diga isso com leveza.
 - "perguntar": falta informação essencial. Pergunta curta em "resposta".
 - "confirmar" / "recusar": SOMENTE quando CONTEXTO.pendente existir e for uma confirmação; ele aceitou (sim, pode, confirma, isso, manda ver) ou recusou (não, deixa, cancela).
-- "lembrete": SOMENTE quando CONTEXTO.pendente.tipo for "lembrete" e ele responder quanto tempo antes quer o aviso. Preencha "minutos" como em "lembrete" acima.
+- "lembrete": SOMENTE quando CONTEXTO.pendente.tipo for "lembrete" e ele responder quanto tempo antes quer o aviso. Preencha "minutos" como em "lembrete" acima (lista de minutos, ou -1).
 - "conversa": qualquer outra coisa. Se ele só chamar seu nome ou cumprimentar, responda numa frase curta e elegante como "Sim, senhor. Estou pronto." ou "Às suas ordens, senhor.", variando. Perguntas gerais: responda de forma breve e útil.
 - "naoentendi": áudio vazio ou incompreensível.
 
@@ -30,7 +30,7 @@ Responda SOMENTE com JSON neste formato:
     const ag = J.agora();
     const p = pendente ? { tipo: pendente.tipo, id: pendente.id || undefined, compromisso: pendente.c } : null;
     return {
-      agora: { data: ag.data, diaDaSemana: J.DIAS[J.diaSemana(ag.data)], hora: ag.hora },
+      agora: { data: ag.data, diaDaSemana: J.DIAS[J.diaSemana(ag.data)], hora: ag.hora + ":" + String(new Date().getSeconds()).padStart(2, "0") },
       compromissos: J.agenda.paraIA(),
       pendente: p,
       conversa: historico.slice(-6).map((h) => (h.de === "eu" ? "Alison: " : "Jarbas: ") + h.texto),

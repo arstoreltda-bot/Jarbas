@@ -92,12 +92,21 @@ window.J = window.J || {};
   /* "Hoje · sex 27/11" -> "hoje, sex 27/11" para frases */
   J.diaFrase = (s) => J.rotuloDia(s).replace(/^(Hoje|Amanhã) · /, (x, a) => a.toLowerCase() + ", ");
   J.rotuloHora = (c) => c.diaInteiro ? "dia inteiro" : (c.fim ? `${J.fmtH(c.inicio)} às ${J.fmtH(c.fim)}` : J.fmtH(c.inicio));
+  /* lembretes: null (não informado, vale 1h antes) | -1 (sem aviso) | [minutos antes, ...] */
+  J.listaLembretes = (l) => (l == null ? [60] : Array.isArray(l) ? l : Number(l) < 0 ? [] : [Number(l)]);
   J.rotuloLembrete = function (min) {
+    if (Array.isArray(min)) {
+      if (!min.length) return "sem aviso";
+      if (min.length === 1) return J.rotuloLembrete(min[0]);
+      const partes = min.map((x) => J.rotuloLembrete(x).replace(/^aviso /, ""));
+      return "avisos " + partes.slice(0, -1).join(", ") + " e " + partes[partes.length - 1];
+    }
     const m = Number(min);
     if (min == null || isNaN(m)) return "aviso 1h antes";
     if (m < 0) return "sem aviso";
     if (m === 0) return "aviso na hora";
     if (m < 1) return `aviso ${Math.round(m * 60)} s antes`;
+    if (m % 1 && m < 60) { const mi = Math.floor(m), se = Math.round((m - mi) * 60); return `aviso ${mi} min e ${se} s antes`; }
     if (m >= 1440 && m % 1440 === 0) { const d = m / 1440; return `aviso ${d} dia${d > 1 ? "s" : ""} antes`; }
     if (m >= 60) { const h = Math.floor(m / 60), r = Math.round(m % 60); return r ? `aviso ${h}h${String(r).padStart(2, "0")} antes` : `aviso ${h}h antes`; }
     return `aviso ${Math.round(m)} min antes`;
