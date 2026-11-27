@@ -152,7 +152,7 @@
   /* Voz premium: transforma texto em fala (PCM 24 kHz). Retorna {pcm: Int16Array, taxa} */
   G.falar = async function (texto, voz) {
     const corpo = {
-      contents: [{ parts: [{ text: `Diga em português do Brasil, com voz masculina calma, educada e serena de um mordomo de inteligência artificial, levemente sintética, em ritmo contínuo e sem pausas longas: ${texto}` }] }],
+      contents: [{ parts: [{ text: texto }] }], // só o texto: instruções de estilo eram lidas em voz alta; o tom vem da voz escolhida
       generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voz || "Charon" } } } },
     };
     const j = await chamar(`models/${G.modeloVoz()}:generateContent`, corpo, { timeout: 20000 });
