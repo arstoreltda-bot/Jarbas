@@ -2,7 +2,7 @@
 "use strict";
 (function (J) {
   const $ = J.$, el = J.el, V = J.voz, G = J.gemini, A = J.agenda;
-  const VERSAO = "1.0.1";
+  const VERSAO = "1.0.2";
   const chat = $("chat"), entrada = $("entrada"), btnAcao = $("btn-acao");
   const ehIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const instalado = () => window.navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
@@ -381,7 +381,7 @@
     const botao = el("button", { class: "btn primario", type: "button", text: "Conectar o Jarbas" });
     botao.onclick = async () => {
       const k = campo.value.trim().replace(/\s+/g, "");
-      if (!/^[A-Za-z0-9_.\-]{25,}$/.test(k)) { msg.textContent = "Essa chave parece incompleta. Copie de novo no AI Studio."; msg.style.color = "var(--alerta)"; return; }
+      if (k.length < 20) { msg.textContent = "Essa chave parece incompleta. Copie de novo no AI Studio."; msg.style.color = "var(--alerta)"; return; }
       botao.disabled = true; botao.textContent = "Testando a chave…"; msg.style.color = ""; msg.textContent = "Conversando com o Google…";
       try {
         await G.configurar(k);
@@ -438,12 +438,29 @@
   }
   iniciar();
 
+  /* atualização garantida: compara com a versão publicada e recarrega sozinho */
+  async function checarVersao() {
+    try {
+      const r = await fetch("versao.json?t=" + Date.now(), { cache: "no-store" });
+      if (!r.ok) return;
+      const v = (await r.json()).versao;
+      if (v && v !== VERSAO && sessionStorage.getItem("jarbas.recarregou") !== v) {
+        sessionStorage.setItem("jarbas.recarregou", v);
+        try { const ks = await caches.keys(); await Promise.all(ks.map((k) => caches.delete(k))); } catch (e) {}
+        try { const rs = await navigator.serviceWorker.getRegistrations(); await Promise.all(rs.map((x) => x.update())); } catch (e) {}
+        location.reload();
+      }
+    } catch (e) {}
+  }
+  checarVersao();
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) checarVersao(); });
+
   /* aplicativo offline + atualizações */
   if ("serviceWorker" in navigator && location.protocol === "https:") {
     navigator.serviceWorker.register("sw.js").then((reg) => {
       reg.addEventListener("updatefound", () => {
         const n = reg.installing; if (!n) return;
-        n.addEventListener("statechange", () => { if (n.state === "installed" && navigator.serviceWorker.controller) J.ui.toast("Jarbas atualizado. Abra de novo para usar a nova versão."); });
+        n.addEventListener("statechange", () => { if (n.state === "installed" && navigator.serviceWorker.controller) J.ui.toast("Atualizando o Jarbas…"); });
       });
       document.addEventListener("visibilitychange", () => { if (!document.hidden) reg.update().catch(() => {}); });
     }).catch(() => {});

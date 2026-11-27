@@ -1,7 +1,7 @@
 /* Jarbas · service worker: abre o app mesmo sem internet e atualiza sozinho */
-const VERSAO = "jarbas-v2";
-const ARQUIVOS = ["./", "index.html", "styles.css?v=2", "manifest.webmanifest",
-  "js/util.js?v=2", "js/gemini.js?v=2", "js/voz.js?v=2", "js/agenda.js?v=2", "js/financas.js?v=2", "js/cerebro.js?v=2", "js/app.js?v=2",
+const VERSAO = "jarbas-v3";
+const ARQUIVOS = ["./", "index.html", "styles.css?v=3", "manifest.webmanifest",
+  "js/util.js?v=3", "js/gemini.js?v=3", "js/voz.js?v=3", "js/agenda.js?v=3", "js/financas.js?v=3", "js/cerebro.js?v=3", "js/app.js?v=3",
   "icons/icon-192.png", "icons/apple-touch-icon.png"];
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(VERSAO).then((c) => c.addAll(ARQUIVOS)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== VERSAO).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
@@ -9,7 +9,7 @@ self.addEventListener("fetch", (e) => {
   const u = new URL(e.request.url);
   if (e.request.method !== "GET" || u.origin !== location.origin) return; // a IA (Google) sempre vai pela internet
   // rede primeiro (pega atualizações), cache se estiver sem internet
-  e.respondWith(fetch(e.request).then((r) => {
+  e.respondWith(fetch(e.request, { cache: "no-cache" }).then((r) => {
     if (r.ok) { const copia = r.clone(); caches.open(VERSAO).then((c) => c.put(e.request, copia)); }
     return r;
   }).catch(() => caches.match(e.request, { ignoreSearch: false }).then((r) => r || caches.match("index.html"))));
