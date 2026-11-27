@@ -2,7 +2,7 @@
 "use strict";
 (function (J) {
   const $ = J.$, el = J.el, V = J.voz, G = J.gemini, A = J.agenda;
-  const VERSAO = "1.1.7";
+  const VERSAO = "1.1.8";
   const chat = $("chat"), entrada = $("entrada"), btnAcao = $("btn-acao");
   const ehIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const instalado = () => window.navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
@@ -607,7 +607,9 @@
       bolha(h.de, h.texto, h.voz ? "voz" : "");
     });
     if (historico.length) $("sugestoes").hidden = true;
-    bolha("jarbas", variar(PRONTO, "pronto"));
+    /* só cumprimenta ao abrir se a conversa estiver vazia ou parada há mais de 30 min (evita resposta "duplicada") */
+    const ult = historico[historico.length - 1];
+    if (!ult || !ult.t || Date.now() - ult.t > 30 * 60000) bolha("jarbas", variar(PRONTO, "pronto"));
     if (ehIOS && !instalado() && !J.store.get("inicio.pulouInstalar")) mostrarInicio("instalar");
     else if (!G.temChave() && !J.store.get("inicio.pulouChave")) mostrarInicio("chave");
     verificar();
