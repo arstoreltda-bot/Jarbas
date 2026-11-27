@@ -2,7 +2,7 @@
 "use strict";
 (function (J) {
   const $ = J.$, el = J.el, V = J.voz, G = J.gemini, A = J.agenda;
-  const VERSAO = "1.0.3";
+  const VERSAO = "1.0.5";
   const chat = $("chat"), entrada = $("entrada"), btnAcao = $("btn-acao");
   const ehIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const instalado = () => window.navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
@@ -181,14 +181,24 @@
       // atalhos instantâneos para respostas simples digitadas
       if (ent.texto && pendente) { const l = J.cerebro.local(ent.texto, pendente); if (["confirmar", "recusar", "lembrete"].includes(l.acao)) r = l; }
       if (!r && ent.texto && /^\s*(oi|olá|ola|ei|ô)?[,\s]*jarbas[\s!?.,]*$/i.test(ent.texto)) r = { acao: "conversa", resposta: variar(PRONTO, "pronto") };
-      if (!r) r = await J.cerebro.entender(ent, pendente, historico);
+      if (!r) {
+        try { r = await J.cerebro.entender(ent, pendente, historico); }
+        catch (e1) {
+          if (e1.tipo === "chave" || e1.tipo === "semchave" || e1.tipo === "rede") throw e1;
+          await J.sleep(1500); // o Google às vezes falha uma vez: tenta de novo antes de incomodar o senhor
+          r = await J.cerebro.entender(ent, pendente, historico);
+        }
+      }
     } catch (e) {
+      console.warn("Jarbas IA", e && e.tipo, e && e.status, e && e.message);
       if (ent.texto) {
         r = J.cerebro.local(ent.texto, pendente);
-        if (r.acao === "conversa" && e.tipo !== "semchave") r.resposta = G.explicar(e);
+        if (r.acao === "conversa" && e.tipo !== "semchave") { r.resposta = G.explicar(e); r.tecnico = `Detalhe técnico: ${e.tipo || "erro"}${e.status ? " " + e.status : ""}${e.modeloUsado ? " · " + e.modeloUsado : ""}${e.message ? " · " + String(e.message).slice(0, 120) : ""}`; }
       } else {
-        pens.remove(); minha.remove(); estado();
-        await dizer(G.explicar(e)); ocupado = false; return;
+        pens.remove(); minha.remove(); estado(); ocupado = false;
+        await dizer(G.explicar(e), { guardar: false });
+        bolha("jarbas", `Detalhe técnico: ${e.tipo || "erro"}${e.status ? " " + e.status : ""}${e.modeloUsado ? " · " + e.modeloUsado : ""}${e.message ? " · " + String(e.message).slice(0, 120) : ""}`, "tecnico");
+        return;
       }
     }
     pens.remove(); estado();
@@ -198,7 +208,7 @@
       else { minha.textContent = tr; minha.classList.remove("carregando"); historico.push({ de: "eu", texto: tr, t: Date.now(), voz: true }); salvarHist(); }
     }
     ocupado = false;
-    try { await executar(r, porVoz); } catch (e) { console.error(e); }
+    try { await executar(r, porVoz); if (r.tecnico) bolha("jarbas", r.tecnico, "tecnico"); } catch (e) { console.error(e); }
   }
   function enviarTexto(t) { t = String(t || "").trim(); if (!t) return; if (escuta) escuta.cancelar(); if (ocupado) { J.ui.toast("Um instante, senhor…"); return; } V.destravar(); processar({ texto: t }); }
 
@@ -229,7 +239,7 @@
     const res = await escuta.pronto; escuta = null;
     ov.hidden = true; orbeG.style.transform = ""; estado();
     if (!res) return;
-    if (!res.falou || res.duracao < 0.5) { if (!auto) J.ui.toast("Não ouvi nada, senhor."); return; }
+    if (!res.falou || res.duracao < 0.5) { if (!auto) dizer(res.pico < 0.003 ? "O microfone chegou mudo, senhor. Confira se o Jarbas tem permissão de microfone e tente de novo." : "Não ouvi nada, senhor. Toque no microfone e fale um pouco mais perto.", { guardar: false }); return; }
     V.som("fim");
     processar({ audio: res.wav, duracao: res.duracao });
   }
@@ -422,7 +432,7 @@
 
   /* ================= início ================= */
   function iniciar() {
-    pintarVoz(); contador();
+    pintarVoz(); contador(); G.revisar();
     const recentes = historico.slice(-16);
     let ultimoDia = "";
     recentes.forEach((h) => {

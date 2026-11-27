@@ -30,8 +30,7 @@
      opcoes: {onNivel(0..1), onFala()} -> retorna controlador {parar(), cancelar(), pronto: Promise<{wav, duracao, falou}>} */
   V.ouvir = async function (opcoes = {}) {
     V.calar();
-    const ac = V.destravar();
-    if (!ac) throw new Error("sem áudio");
+    V.destravar();
     gravando = true; sessao("play-and-record");
     let stream;
     try {
@@ -40,14 +39,20 @@
       gravando = false; sessao("playback");
       const err = new Error(e && e.name === "NotAllowedError" ? "negado" : "indisponivel"); err.causa = e; throw err;
     }
-    if (ac.state !== "running") { try { await ac.resume(); } catch (e) {} }
+    /* No iPhone, um contexto de áudio criado antes do microfone pode gravar mudo ou distorcido.
+       Por isso a gravação usa um contexto próprio, criado depois que o microfone abriu. */
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    let ac;
+    try { ac = new Ctx(); } catch (e) { ac = null; }
+    if (!ac) { stream.getTracks().forEach((t) => t.stop()); gravando = false; throw new Error("indisponivel"); }
+    try { await ac.resume(); } catch (e) {}
     const fonte = ac.createMediaStreamSource(stream);
     const proc = ac.createScriptProcessor(4096, 1, 1);
     const pedacos = [];
     const taxa = ac.sampleRate;
     const inicio = performance.now();
-    let ruido = 0.006, falou = false, ultimaFala = 0, encerrado = false, amostras = 0;
-    const SIL = opcoes.silencio || 1400, MAX = opcoes.maximo || 45000;
+    let ruido = 1, falou = false, ultimaFala = 0, encerrado = false, amostras = 0, pico = 0;
+    const SIL = opcoes.silencio || 1600, MAX = opcoes.maximo || 45000;
     let fim;
     const pronto = new Promise((res) => { fim = res; });
 
@@ -59,25 +64,29 @@
       let s = 0; for (let i = 0; i < dado.length; i++) s += dado[i] * dado[i];
       const rms = Math.sqrt(s / dado.length);
       const t = performance.now() - inicio;
-      if (t < 350) ruido = Math.max(0.004, (ruido + rms) / 2);           // mede o ruído ambiente
-      const limiar = Math.max(0.018, ruido * 3);
+      if (rms > 0) ruido = Math.min(ruido, Math.max(0.002, rms));   // nível do silêncio (o menor ouvido)
+      pico = Math.max(pico, rms);
+      const limiar = Math.max(0.01, ruido * 2.5);
       if (rms > limiar) { if (!falou && opcoes.onFala) opcoes.onFala(); falou = true; ultimaFala = t; }
-      if (opcoes.onNivel) opcoes.onNivel(Math.min(1, rms / 0.12));
-      if ((falou && t - ultimaFala > SIL) || t > MAX || (!falou && t > (opcoes.esperaInicial || 8000))) encerrar(true);
+      if (opcoes.onNivel) opcoes.onNivel(Math.min(1, rms / 0.08));
+      if ((falou && t - ultimaFala > SIL && t > 1200) || t > MAX || (!falou && t > (opcoes.esperaInicial || 9000))) encerrar(true, false);
     };
     fonte.connect(proc); proc.connect(ac.destination);
 
     function liberar() {
       try { proc.disconnect(); fonte.disconnect(); } catch (e) {}
       stream.getTracks().forEach((t) => t.stop());
+      try { ac.close(); } catch (e) {}
       gravando = false; sessao("playback");
     }
-    function encerrar(enviar) {
+    function encerrar(enviar, manual) {
       if (encerrado) return; encerrado = true; liberar();
       if (!enviar) { fim(null); return; }
-      fim({ wav: paraWav(pedacos, taxa, 16000), duracao: amostras / taxa, falou });
+      const duracao = amostras / taxa;
+      /* se o senhor tocou em Enviar, manda mesmo que o detector não tenha percebido a fala */
+      fim({ wav: paraWav(pedacos, taxa, 16000), duracao, falou: falou || (manual && duracao >= 0.6 && pico > 0.003), pico });
     }
-    return { parar: () => encerrar(true), cancelar: () => encerrar(false), pronto };
+    return { parar: () => encerrar(true, true), cancelar: () => encerrar(false), pronto };
   };
 
   /* junta, reduz para 16 kHz e codifica em WAV (base64) */

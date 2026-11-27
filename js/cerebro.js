@@ -43,7 +43,9 @@ Responda SOMENTE com JSON neste formato:
     if (entrada.audio) { partes.push({ text: "MENSAGEM: no áudio anexo." }); partes.push({ inlineData: { mimeType: "audio/wav", data: entrada.audio } }); }
     else partes.push({ text: "MENSAGEM: " + JSON.stringify(entrada.texto) });
     const r = await J.gemini.json(sistema(), partes);
-    if (!r || typeof r !== "object" || !r.acao) throw new J.gemini.ErroIA("api", "sem ação");
+    if (Array.isArray(r) && r[0]) r = r[0];
+    if (!r || typeof r !== "object") throw new J.gemini.ErroIA("api", "resposta sem JSON");
+    if (!r.acao) r.acao = r.resposta ? "conversa" : (entrada.audio && !r.transcricao ? "naoentendi" : "conversa");
     return r;
   };
 

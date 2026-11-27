@@ -60,6 +60,7 @@ main{flex:1;min-height:0;display:flex;flex-direction:column;max-width:720px;widt
 .msg.eu.voz::before{content:"";display:inline-block;width:14px;height:14px;margin:0 6px -2px 0;opacity:.8;
   background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round'%3E%3Crect x='9' y='3' width='6' height='11' rx='3'/%3E%3Cpath d='M5 11a7 7 0 0 0 14 0M12 18v3'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round'%3E%3Crect x='9' y='3' width='6' height='11' rx='3'/%3E%3Cpath d='M5 11a7 7 0 0 0 14 0M12 18v3'/%3E%3C/svg%3E") center/contain no-repeat}
 .msg.carregando{opacity:.7}
+.msg.tecnico{font-size:12.5px;color:var(--fraco);background:none;border:0;padding:0 6px;margin-top:-6px}
 .digitando{align-self:flex-start;display:flex;gap:5px;padding:14px 16px;background:var(--card);border:1px solid var(--linha);border-radius:20px;border-bottom-left-radius:6px}
 .digitando i{width:7px;height:7px;border-radius:50%;background:var(--lat);animation:pula 1.2s infinite ease-in-out}
 .digitando i:nth-child(2){animation-delay:.15s}.digitando i:nth-child(3){animation-delay:.3s}
