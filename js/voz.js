@@ -117,7 +117,9 @@
 
   /* ================= FALAR ================= */
   V.ligada = () => J.store.get("voz.ligada", true);
-  V.modo = () => J.store.get("voz.modo", "iphone");        // "iphone" (instantânea) | "premium" (Google, mais lenta)
+  /* pedido do Alison (26/11): usar a voz de mordomo de IA (Premium, Charon) */
+  if (J.store.get("voz.migr", 0) < 1) { J.store.set("voz.modo", "premium"); J.store.set("voz.premium", "Charon"); J.store.set("voz.migr", 1); }
+  V.modo = () => J.store.get("voz.modo", "premium");        // "iphone" (instantânea) | "premium" (Google, mais lenta)
   V.vozPremium = () => J.store.get("voz.premium", "Charon");
   V.vozIphone = () => J.store.get("voz.iphone", "");
   V.VOZES_PREMIUM = [["Charon", "Charon · grave e informativa"], ["Orus", "Orus · firme"], ["Iapetus", "Iapetus · clara"], ["Algenib", "Algenib · rouca"], ["Rasalgethi", "Rasalgethi · informativa"], ["Schedar", "Schedar · equilibrada"], ["Enceladus", "Enceladus · suave"], ["Fenrir", "Fenrir · animada"]];
