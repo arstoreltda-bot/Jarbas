@@ -2,7 +2,7 @@
 "use strict";
 (function (J) {
   const $ = J.$, el = J.el, V = J.voz, G = J.gemini, A = J.agenda;
-  const VERSAO = "1.1.10";
+  const VERSAO = "1.1.11";
   const chat = $("chat"), entrada = $("entrada"), btnAcao = $("btn-acao");
   const ehIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const instalado = () => window.navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
@@ -169,6 +169,22 @@
     c.lembrete = A.normalizarLembrete(atual.concat(extras));
   }
 
+  /* todos os compromissos de um período (o app conta, não a IA) */
+  const semAcento = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const GENERICOS = /^(reuni(ao|oes)|compromissos?|eventos?|agenda|tudo|todos?|todas?|marcac(ao|oes))$/;
+  function filtrarAgenda(f) {
+    const de = f.de, ate = f.ate && f.ate >= f.de ? f.ate : f.de;
+    let termo = semAcento(f.termo).trim(); if (GENERICOS.test(termo)) termo = "";
+    return A.lista().filter((c) => c.data >= de && c.data <= ate && (!termo || semAcento(c.titulo + " " + c.local).includes(termo.replace(/s$/, ""))))
+      .sort((a, b) => (a.data + (a.inicio || "00:00")).localeCompare(b.data + (b.inicio || "00:00")));
+  }
+  function fraseperiodo(f, inicial) {
+    const de = f.de, ate = f.ate && f.ate >= f.de ? f.ate : f.de;
+    let t = de === ate ? J.diaFrase(de) : `de ${J.diaFrase(de)} até ${J.diaFrase(ate)}`;
+    if (de === ate && !/^(hoje|amanh)/i.test(t)) t = "em " + t;
+    return inicial ? t[0].toUpperCase() + t.slice(1) : t;
+  }
+
   /* ---------- executar a decisão do cérebro ---------- */
   async function executar(r, porVoz) {
     const resp = (r.resposta || "").trim();
@@ -192,7 +208,11 @@
       }
       case "cancelar": {
         const ids = [...new Set([].concat(Array.isArray(r.ids) ? r.ids : [], r.id ? [r.id] : []))];
-        const alvos = ids.map((i) => A.obter(i)).filter(Boolean);
+        let alvos = ids.map((i) => A.obter(i)).filter(Boolean);
+        if (r.filtro && r.filtro.de) {
+          alvos = filtrarAgenda(r.filtro);
+          if (!alvos.length) { await dizer(`O senhor não tem nada marcado ${fraseperiodo(r.filtro)}.`); return; }
+        }
         if (!alvos.length) { await dizer(resp || "Qual compromisso o senhor deseja desmarcar?"); return porVoz && ouvirDeNovo(); }
         if (alvos.length > 1) return pedirCancelamentoVarios(alvos, porVoz);
         return pedirCancelamento(alvos[0], porVoz);
@@ -212,7 +232,16 @@
       }
       case "naoentendi": await dizer("Perdão, senhor, não consegui ouvir bem. Pode repetir?"); return porVoz && ouvirDeNovo();
       case "perguntar": await dizer(resp || "Pode me dar mais detalhes, senhor?"); return porVoz && ouvirDeNovo();
-      case "listar": return dizer(resp || "Sua agenda está livre, senhor.");
+      case "listar": {
+        if (r.filtro && r.filtro.de) {
+          const l = filtrarAgenda(r.filtro);
+          if (!l.length) return dizer(`O senhor não tem nada marcado ${fraseperiodo(r.filtro)}.`);
+          const umDia = (r.filtro.ate || r.filtro.de) === r.filtro.de;
+          const itens = l.map((c) => `${umDia ? "" : J.rotuloDia(c.data).replace(" · ", ", ") + ", "}${c.diaInteiro ? "o dia inteiro" : "às " + J.fmtH(c.inicio)}: ${c.titulo}`);
+          return dizer(`${fraseperiodo(r.filtro, true)}, o senhor tem ${l.length === 1 ? "1 compromisso" : l.length + " compromissos"}:\n${itens.join(";\n")}.`);
+        }
+        return dizer(resp || "Sua agenda está livre, senhor.");
+      }
       default: {
         await dizer(resp || variar(PRONTO, "pronto"));
         if (porVoz && pendente) ouvirDeNovo();
