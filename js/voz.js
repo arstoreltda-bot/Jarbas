@@ -8,7 +8,7 @@
   let gravando = false;
   V.destravar = function () {
     try {
-      if (!gravando) sessao("playback"); // toca mesmo com o iPhone no modo silencioso (iOS 17+)
+      if (!gravando && !micStream) sessao("playback"); // toca mesmo com o iPhone no modo silencioso (iOS 17+)
       const A = window.AudioContext || window.webkitAudioContext;
       if (!A) return null;
       if (!ctx) ctx = new A();
@@ -26,6 +26,34 @@
   /* ================= OUVIR ================= */
   V.microfoneDisponivel = () => !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
 
+  /* O iPhone pede permissão do microfone a cada vez que o app o abre de novo.
+     Para não perguntar toda hora, o microfone aberto é reaproveitado (fica em pausa entre
+     as falas) e só é solto depois de alguns minutos sem uso ou quando o app sai da tela. */
+  let micStream = null, micTimer = null;
+  async function pegarMicrofone() {
+    clearTimeout(micTimer);
+    if (micStream && micStream.getAudioTracks().some((t) => t.readyState === "live")) {
+      micStream.getAudioTracks().forEach((t) => (t.enabled = true));
+      return micStream;
+    }
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+    return micStream;
+  }
+  function pausarMicrofone() {
+    if (!micStream) return;
+    micStream.getAudioTracks().forEach((t) => (t.enabled = false));
+    clearTimeout(micTimer);
+    micTimer = setTimeout(soltarMicrofone, 5 * 60000);
+  }
+  function soltarMicrofone() {
+    clearTimeout(micTimer);
+    if (micStream) micStream.getTracks().forEach((t) => t.stop());
+    micStream = null;
+    if (!gravando) sessao("playback");
+  }
+  V.soltarMicrofone = soltarMicrofone;
+  document.addEventListener("visibilitychange", () => { if (document.hidden && !gravando) soltarMicrofone(); });
+
   /* Grava até o senhor parar de falar (silêncio) ou tocar de novo.
      opcoes: {onNivel(0..1), onFala()} -> retorna controlador {parar(), cancelar(), pronto: Promise<{wav, duracao, falou}>} */
   V.ouvir = async function (opcoes = {}) {
@@ -33,9 +61,8 @@
     V.destravar();
     gravando = true; sessao("play-and-record");
     let stream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
-    } catch (e) {
+    try { stream = await pegarMicrofone(); }
+    catch (e) {
       gravando = false; sessao("playback");
       const err = new Error(e && e.name === "NotAllowedError" ? "negado" : "indisponivel"); err.causa = e; throw err;
     }
@@ -44,7 +71,7 @@
     const Ctx = window.AudioContext || window.webkitAudioContext;
     let ac;
     try { ac = new Ctx(); } catch (e) { ac = null; }
-    if (!ac) { stream.getTracks().forEach((t) => t.stop()); gravando = false; throw new Error("indisponivel"); }
+    if (!ac) { soltarMicrofone(); gravando = false; throw new Error("indisponivel"); }
     try { await ac.resume(); } catch (e) {}
     const fonte = ac.createMediaStreamSource(stream);
     const proc = ac.createScriptProcessor(4096, 1, 1);
@@ -75,9 +102,9 @@
 
     function liberar() {
       try { proc.disconnect(); fonte.disconnect(); } catch (e) {}
-      stream.getTracks().forEach((t) => t.stop());
       try { ac.close(); } catch (e) {}
-      gravando = false; sessao("playback");
+      gravando = false;
+      pausarMicrofone();
     }
     function encerrar(enviar, manual) {
       if (encerrado) return; encerrado = true; liberar();
