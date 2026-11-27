@@ -222,3 +222,23 @@ a{color:var(--lat2)}
 
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 @media (prefers-reduced-motion:no-preference){.msg,.cartao{animation:in .22s ease-out}@keyframes in{from{transform:translateY(6px);opacity:0}}}
+/* tarefas */
+.tf-nova{display:flex;gap:8px;align-items:center;padding:8px 8px 8px 14px;margin-bottom:14px}
+.tf-nova input{flex:1;min-width:0;background:none;border:0;color:var(--tinta);font-size:16px;outline:none;padding:8px 0}
+.tf-grupo{margin-bottom:16px}
+.tf-grupo h3{font-size:12.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--fraco);margin:0 4px 8px}
+.tf-grupo.atras h3{color:#ff8a80}
+.tf-item{display:flex;align-items:center;gap:10px;padding:6px 10px 6px 8px}
+.tf-check{appearance:none;flex:none;width:30px;height:30px;border-radius:50%;border:2px solid var(--fraco);background:none;display:grid;place-items:center;padding:0}
+.tf-check svg{width:16px;height:16px;stroke:transparent;fill:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+.tf-item.imp .tf-check{border-color:var(--lat)}
+.tf-item.feita .tf-check{background:var(--lat);border-color:var(--lat)}
+.tf-item.feita .tf-check svg{stroke:var(--lat-tinta)}
+.tf-txt{appearance:none;flex:1;min-width:0;text-align:left;background:none;border:0;color:var(--tinta);padding:8px 0;font-size:16px}
+.tf-txt .tt{font-weight:600;overflow-wrap:anywhere}
+.tf-txt .sub{color:var(--suave);font-size:13.5px}
+.tf-grupo.atras .tf-txt .sub{color:#ff8a80}
+.tf-item.feita .tt{text-decoration:line-through;color:var(--fraco);font-weight:500}
+.tf-ver{display:block;margin:6px auto 12px}
+.tf-limpar{display:block;margin:10px auto 0}
+.tf-grupo .itens{display:flex;flex-direction:column;gap:8px}

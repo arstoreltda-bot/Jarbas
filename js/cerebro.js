@@ -16,6 +16,13 @@ Ações possíveis (campo "acao"):
 - "perguntar": falta informação essencial. Pergunta curta em "resposta".
 - "confirmar" / "recusar": SOMENTE quando CONTEXTO.pendente existir e for uma confirmação; ele aceitou (sim, pode, confirma, isso, manda ver) ou recusou (não, deixa, cancela).
 - "lembrete": SOMENTE quando CONTEXTO.pendente.tipo for "lembrete" e ele responder quanto tempo antes quer o aviso. Preencha "minutos" como em "lembrete" acima (lista de minutos antes do compromisso, ou -1) e, se ele falar em "daqui a..." ou num horário exato, use "avisosDaqui" / "avisosEm" como explicado acima. Se ele pedir alarme, "alarme": true.
+TAREFAS (separadas da agenda). Compromisso = algo marcado num dia/horário em que ele vai estar (reunião, consulta, culto, viagem). Tarefa = algo que ele precisa FAZER ("tenho que pagar o boleto", "preciso comprar ração", "anota a tarefa de ligar pro contador", "me lembra de mandar o orçamento amanhã", "coloca na lista de tarefas"). Se ele disser "tarefa", é sempre tarefa. Ações de tarefas:
+- "tarefa_criar": preencha "tarefas" = LISTA com uma ou mais tarefas {"titulo","prazo":"AAAA-MM-DD" ou "","hora":"HH:MM" ou "","lembrete":null,"importante":false,"notas":""}. Título curto no infinitivo, com inicial maiúscula, sem data ("Pagar o boleto da luz"). Prazo só se ele disser quando. "lembrete" segue as mesmas regras dos compromissos (lista de minutos antes do prazo, -1 = sem aviso, null = não falou). "importante" true se ele disser urgente/importante/prioridade.
+- "tarefa_concluir": ele fez/terminou/concluiu/já pagou. "ids" com as tarefas citadas; se ele disser "todas as de hoje" etc., use "filtro" (abaixo) em vez de ids. "desfazer": true se ele pedir para reabrir/desmarcar como feita.
+- "tarefa_apagar": apagar/excluir/remover tarefas. Mesmas regras de "cancelar": citadas → "ids"; TODAS de um período ou TODAS as concluídas → "filtro"; singular ambíguo → "perguntar" listando as opções.
+- "tarefa_listar": ver as tarefas ("quais minhas tarefas?", "o que tenho pra fazer hoje?", "o que já fiz?"). Preencha só "filtro"; deixe "resposta" vazia.
+- "tarefa_editar": mudar uma tarefa (novo prazo, novo nome, aviso). "id" + "tarefa" só com os campos que mudam.
+"filtro" de tarefas: {"status":"pendentes"|"feitas"|"todas","de":"AAAA-MM-DD" ou "","ate":"AAAA-MM-DD" ou "","termo":"","atrasadas":false,"semPrazo":false}. Sem período = todas as pendentes. "Hoje" = de e ate de hoje (o app inclui as atrasadas). As tarefas existentes estão em CONTEXTO.tarefas.
 - "conversa": qualquer outra coisa. O Alison e a família são evangélicos: quando ele disser "a paz de Deus", "a paz do Senhor", "paz do Senhor" ou parecido (sozinho ou no começo da fala), comece a resposta com "Amém, senhor." (se vier um pedido junto, responda "Amém" na "resposta" e execute o pedido normalmente). Trate a fé dele com respeito. Se ele só chamar seu nome ou cumprimentar, responda numa frase curta e elegante como "Sim, senhor. Estou pronto." ou "Às suas ordens, senhor.", variando. Perguntas gerais: responda de forma breve e útil.
 - "naoentendi": áudio vazio ou incompreensível.
 
@@ -23,7 +30,7 @@ Se CONTEXTO.pendente existir e ele pedir uma mudança no que está pendente (out
 Em "resposta", para agendar e remarcar, escreva uma frase curta de confirmação; o app mostra os detalhes.${J.financas && J.financas.ativo ? "\n" + J.financas.instrucoes() : ""}
 
 Responda SOMENTE com JSON neste formato:
-{"transcricao":"","acao":"","compromisso":{"titulo":"","data":"AAAA-MM-DD","inicio":"HH:MM","fim":"","diaInteiro":false,"local":"","calendario":"Pessoal","lembrete":null,"alarme":false,"avisosDaqui":[],"avisosEm":[]},"id":"","ids":[],"filtro":null,"minutos":null,"alarme":false,"avisosDaqui":[],"avisosEm":[],"resposta":""}`;
+{"transcricao":"","acao":"","compromisso":{"titulo":"","data":"AAAA-MM-DD","inicio":"HH:MM","fim":"","diaInteiro":false,"local":"","calendario":"Pessoal","lembrete":null,"alarme":false,"avisosDaqui":[],"avisosEm":[]},"id":"","ids":[],"filtro":null,"tarefas":[],"tarefa":null,"desfazer":false,"minutos":null,"alarme":false,"avisosDaqui":[],"avisosEm":[],"resposta":""}`;
   }
 
   function contexto(pendente, historico) {
@@ -32,6 +39,7 @@ Responda SOMENTE com JSON neste formato:
     return {
       agora: { data: ag.data, diaDaSemana: J.DIAS[J.diaSemana(ag.data)], hora: ag.hora + ":" + String(new Date().getSeconds()).padStart(2, "0") },
       compromissos: J.agenda.paraIA(),
+      tarefas: J.tarefas ? J.tarefas.paraIA() : [],
       pendente: p,
       conversa: historico.slice(-6).map((h) => (h.de === "eu" ? "Alison: " : "Jarbas: ") + h.texto),
     };

@@ -44,6 +44,10 @@
   };
 
   function textoAviso(c, m) {
+    if (c.tarefa) {
+      const dia = J.rotuloDia(c.data).replace(" · ", ", ");
+      return { titulo: "Tarefa: " + c.titulo, texto: m > 0 ? `Prazo: ${dia}${c.semHora ? "" : ", às " + J.fmtH(c.inicio)}` : c.semHora ? "Para fazer hoje" : `Para fazer agora (${J.fmtH(c.inicio)})` };
+    }
     const hora = c.diaInteiro ? "dia inteiro" : "às " + J.fmtH(c.inicio);
     let quando;
     if (m <= 0) quando = c.diaInteiro ? "Hoje" : "Começa agora";
@@ -63,7 +67,7 @@
     try {
       const agora = Date.now();
       const desejados = {};
-      J.agenda.lista().forEach((c) => {
+      J.agenda.lista().concat(J.tarefas ? J.tarefas.comoCompromissos() : []).forEach((c) => {
         if (!J.agenda.valido(c)) return;
         const inicio = J.instante(c.data, c.diaInteiro ? "08:00" : c.inicio);
         J.listaLembretes(c.lembrete).forEach((m) => {

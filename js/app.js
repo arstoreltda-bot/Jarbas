@@ -1,8 +1,8 @@
 /* Jarbas · aplicativo (conversa, voz, telas, ajustes e primeira vez) */
 "use strict";
 (function (J) {
-  const $ = J.$, el = J.el, V = J.voz, G = J.gemini, A = J.agenda;
-  const VERSAO = "1.1.11";
+  const $ = J.$, el = J.el, V = J.voz, G = J.gemini, A = J.agenda, T = J.tarefas;
+  const VERSAO = "1.2.0";
   const chat = $("chat"), entrada = $("entrada"), btnAcao = $("btn-acao");
   const ehIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const instalado = () => window.navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
@@ -135,6 +135,7 @@
   function confirmar() {
     const p = pendente; if (!p) return dizer(variar(PRONTO, "pronto"));
     pendente = null;
+    if (p.tipo === "apagarTarefas") { p.ids.forEach((i) => T.remover(i)); encerrarCartao(p, p.ids.length === 1 ? "Apagada ✓" : `${p.ids.length} apagadas ✓`, true); J.vibrar(15); return dizer(p.ids.length === 1 ? "Apagada, senhor." : `Pronto, senhor. Apaguei as ${p.ids.length} tarefas.`); }
     if (p.tipo === "cancelar" && p.ids) { p.ids.forEach((i) => A.remover(i)); encerrarCartao(p, `${p.ids.length} desmarcados ✓`, true); J.vibrar(15); return dizer(`Pronto, senhor. Desmarquei os ${p.ids.length} compromissos.`); }
     if (p.tipo === "cancelar") { A.remover(p.id); encerrarCartao(p, "Desmarcado ✓", true); return dizer("Desmarcado, senhor."); }
     if (p.tipo === "lembrete") { pendente = p; return dizer("Antes, senhor: quanto tempo antes devo lembrá-lo?"); }
@@ -150,8 +151,8 @@
   }
   function recusar() {
     const p = pendente; if (!p) return dizer("Perfeitamente, senhor.");
-    pendente = null; encerrarCartao(p, p.tipo === "cancelar" ? "Mantido" : "Não marcado", false);
-    return dizer(p.tipo === "cancelar" ? "Perfeitamente, senhor. Deixei como estava." : "Tudo bem, senhor, não marquei.");
+    pendente = null; encerrarCartao(p, p.tipo === "cancelar" || p.tipo === "apagarTarefas" ? "Mantido" : "Não marcado", false);
+    return dizer(p.tipo === "cancelar" || p.tipo === "apagarTarefas" ? "Perfeitamente, senhor. Deixei como estava." : "Tudo bem, senhor, não marquei.");
   }
 
   /* "daqui a 30 s" e "às 22h50" -> minutos antes do início do compromisso */
@@ -183,6 +184,23 @@
     let t = de === ate ? J.diaFrase(de) : `de ${J.diaFrase(de)} até ${J.diaFrase(ate)}`;
     if (de === ate && !/^(hoje|amanh)/i.test(t)) t = "em " + t;
     return inicial ? t[0].toUpperCase() + t.slice(1) : t;
+  }
+
+  function tarefasAlvo(r, status) {
+    const ids = [...new Set([].concat(Array.isArray(r.ids) ? r.ids : [], r.id ? [r.id] : []))];
+    if (r.filtro && (r.filtro.de || r.filtro.status || r.filtro.termo || r.filtro.atrasadas || r.filtro.semPrazo)) return T.filtrar(Object.assign({ status }, r.filtro));
+    return ids.map((i) => T.obter(i)).filter(Boolean);
+  }
+  function pedirApagarTarefas(alvos, porVoz) {
+    descartarPendente();
+    const p = { tipo: "apagarTarefas", ids: alvos.map((t) => t.id), c: { titulo: alvos[0].titulo } };
+    const k = el("div", { class: "cartao perigo" }, el("div", { class: "tt", text: alvos.length === 1 ? "Apagar tarefa" : `Apagar ${alvos.length} tarefas` }));
+    const ul = el("div", { class: "det" });
+    alvos.forEach((t) => ul.append(el("span", { text: t.feita ? "✓" : "○" }), el("span", { text: t.titulo + (t.prazo ? " · " + T.rotuloPrazo(t, true) : "") })));
+    k.append(ul, el("div", { class: "botoes" }, el("button", { class: "btn", type: "button", text: "Manter", onclick: () => recusar() }), el("button", { class: "btn perigo", type: "button", text: alvos.length === 1 ? "Apagar" : `Apagar as ${alvos.length}`, onclick: () => confirmar() })));
+    chat.append(k); rolar(); p.cartao = k; pendente = p;
+    const nomes = alvos.length <= 4 ? ": " + alvos.map((t) => t.titulo).join(", ") : "";
+    return dizer(alvos.length === 1 ? `Realmente deseja apagar a tarefa ${alvos[0].titulo}?` : `Realmente deseja apagar as ${alvos.length} tarefas${nomes}?`).then(() => porVoz && ouvirDeNovo());
   }
 
   /* ---------- executar a decisão do cérebro ---------- */
@@ -229,6 +247,47 @@
         p.c.lembrete = m;
         if (r.alarme === true || /alarme|despert/i.test(r.transcricao || "")) p.c.alarme = true;
         return pedirConfirmacao(p.c, p.id, porVoz);
+      }
+      case "tarefa_criar": {
+        const lista = (Array.isArray(r.tarefas) ? r.tarefas : r.tarefa ? [r.tarefa] : []).map((t) => T.normalizar(t)).filter(T.valida);
+        if (!lista.length) { await dizer(resp || "Qual é a tarefa, senhor?"); return porVoz && ouvirDeNovo(); }
+        const feitas = lista.map((t) => T.salvar(t));
+        J.vibrar(15);
+        if (feitas.length === 1) {
+          const t = feitas[0];
+          let f = `Anotado, senhor: ${t.titulo}${t.prazo ? ", para " + T.rotuloPrazo(t, true) : ""}.`;
+          if (t.prazo && t.prazo >= J.agora().data && t.lembrete !== -1) f += t.hora ? (t.lembrete == null || J.listaLembretes(t.lembrete).join() === "0" ? " Aviso o senhor na hora." : ` Aviso o senhor ${J.rotuloLembrete(t.lembrete).replace(/^avisos? /, "")}.`) : " Aviso o senhor às 9h do dia.";
+          return dizer(f);
+        }
+        return dizer(`Anotei ${feitas.length} tarefas: ${feitas.map((t) => t.titulo).join(", ")}.`);
+      }
+      case "tarefa_concluir": {
+        let alvos = tarefasAlvo(r, r.desfazer ? "feitas" : "pendentes");
+        if (!alvos.length) { await dizer(resp || "Não encontrei essa tarefa, senhor. Qual delas?"); return porVoz && ouvirDeNovo(); }
+        alvos.forEach((t) => T.concluir(t.id, !r.desfazer)); J.vibrar(15);
+        if (r.desfazer) return dizer(alvos.length === 1 ? `Pronto, senhor. ${alvos[0].titulo} voltou para as pendentes.` : `Pronto, senhor. ${alvos.length} tarefas voltaram para as pendentes.`);
+        const faltam = T.pendentes().length;
+        return dizer(`${alvos.length === 1 ? "Feito ✓ " + alvos[0].titulo + "." : `Marquei ${alvos.length} tarefas como feitas.`} ${faltam ? `Restam ${faltam === 1 ? "1 pendente" : faltam + " pendentes"}.` : "Nenhuma pendente, senhor. Muito bem."}`);
+      }
+      case "tarefa_apagar": {
+        const alvos = tarefasAlvo(r, "todas");
+        if (!alvos.length) { await dizer(resp || "Não encontrei essa tarefa, senhor."); return porVoz && ouvirDeNovo(); }
+        return pedirApagarTarefas(alvos, porVoz);
+      }
+      case "tarefa_editar": {
+        const t = T.obter(r.id);
+        if (!t || !r.tarefa) { await dizer(resp || "Qual tarefa o senhor deseja mudar?"); return porVoz && ouvirDeNovo(); }
+        const novo = T.alterar(t.id, r.tarefa);
+        return dizer(`Alterado, senhor: ${novo.titulo}${novo.prazo ? ", para " + T.rotuloPrazo(novo, true) : ", sem prazo"}.`);
+      }
+      case "tarefa_listar": {
+        const f = Object.assign({ status: "pendentes" }, r.filtro || {});
+        const l = T.filtrar(f);
+        const qual = f.status === "feitas" ? "concluída" : "pendente";
+        const periodo = f.de ? " " + fraseperiodo(f) : "";
+        if (!l.length) return dizer(f.status === "feitas" ? `Nenhuma tarefa concluída${periodo}, senhor.` : `Nenhuma tarefa pendente${periodo}, senhor.`);
+        const itens = l.map((t) => `${t.importante ? "★ " : ""}${t.titulo}${t.prazo ? " (" + T.rotuloPrazo(t) + ")" : ""}`);
+        return dizer(`O senhor tem ${l.length === 1 ? "1 tarefa " + qual : l.length + " tarefas " + qual + "s"}${periodo}:\n${itens.join(";\n")}.`);
       }
       case "naoentendi": await dizer("Perdão, senhor, não consegui ouvir bem. Pode repetir?"); return porVoz && ouvirDeNovo();
       case "perguntar": await dizer(resp || "Pode me dar mais detalhes, senhor?"); return porVoz && ouvirDeNovo();
@@ -363,16 +422,19 @@
   let telaAtual = "conversa";
   function mostrar(qual) {
     telaAtual = qual;
-    ["conversa", "agenda", "ajustes"].forEach((t) => { $("tela-" + t).hidden = t !== qual; });
+    ["conversa", "agenda", "tarefas", "ajustes"].forEach((t) => { $("tela-" + t).hidden = t !== qual; });
     document.querySelectorAll("#abas button").forEach((b) => b.toggleAttribute("aria-current", b.dataset.tela === qual) || b.dataset.tela === qual && b.setAttribute("aria-current", "page"));
     $("compositor").hidden = qual !== "conversa";
     if (qual === "agenda") { A.render(); $("tela-agenda").scrollTop = 0; }
     if (qual === "ajustes") renderAjustes();
+    if (qual === "tarefas") { T.render(); $("tela-tarefas").scrollTop = 0; }
     if (qual === "conversa") rolar();
   }
   J.ui.mostrar = mostrar;
   document.querySelectorAll("#abas button").forEach((b) => (b.onclick = () => mostrar(b.dataset.tela)));
   function contador() { const n = A.lista().filter((c) => c.data >= J.agora().data).length; $("contador").hidden = !n; $("contador").textContent = n > 99 ? "99+" : String(n); }
+  function contadorT() { const hoje = J.agora().data; const n = T.pendentes().filter((t) => t.prazo && t.prazo <= hoje).length; $("contador-t").hidden = !n; $("contador-t").textContent = n > 99 ? "99+" : String(n); }
+  T.onMudou = () => { contadorT(); if (telaAtual === "tarefas") T.render(); J.avisos.sincronizar(); };
   A.onMudou = () => { contador(); if (telaAtual === "agenda") A.render(); J.avisos.sincronizar(); if (telaAtual === "ajustes") renderAjustes(); };
 
   /* botão de voz no topo */
@@ -438,6 +500,7 @@
   /* ================= lembretes ================= */
   let avisoAtual = null;
   function avisar(c, quando) {
+    if (c.tarefa) return avisarTarefa(c);
     avisoAtual = c;
     $("aviso-t").textContent = c.titulo;
     $("aviso-s").textContent = (c.diaInteiro ? "Dia inteiro" : "Às " + J.fmtH(c.inicio)) + " · " + quando + (c.local ? " · " + c.local : "");
@@ -446,11 +509,19 @@
     setTimeout(() => dizer(`Com licença, senhor. Lembrete: ${c.titulo}${c.diaInteiro ? "" : ", às " + J.fmtH(c.inicio)}, ${quando}.`), 1100);
     try { if ("Notification" in window && Notification.permission === "granted" && navigator.serviceWorker) navigator.serviceWorker.ready.then((r) => r.showNotification("Jarbas · " + c.titulo, { body: (c.diaInteiro ? "Hoje" : "Às " + J.fmtH(c.inicio)) + ", " + quando, icon: "icons/icon-192.png", tag: c.id })); } catch (e) {}
   }
+  function avisarTarefa(c) {
+    avisoAtual = c;
+    $("aviso-t").textContent = "Tarefa: " + c.titulo;
+    $("aviso-s").textContent = c.semHora ? "Para hoje" : "Prazo às " + J.fmtH(c.inicio);
+    $("aviso").hidden = false;
+    V.destravar(); V.som("aviso"); J.vibrar([200, 100, 200]);
+    setTimeout(() => dizer(`Com licença, senhor. Lembrete da tarefa: ${c.titulo}${c.semHora ? ", para hoje" : ", às " + J.fmtH(c.inicio)}.`), 1100);
+  }
   $("aviso-ok").onclick = () => { $("aviso").hidden = true; avisoAtual = null; };
-  const verificar = () => A.verificarLembretes(avisar);
+  const verificar = () => { A.verificarLembretes(avisar); A.verificarLembretes(avisar, T.comoCompromissos()); };
   setInterval(verificar, 2000);
   setTimeout(revisarAlarmes, 4000);
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) { verificar(); contador(); revisarAlarmes(); J.avisos.sincronizar(); if (telaAtual === "agenda") A.render(); } });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { verificar(); contador(); contadorT(); if (telaAtual === "tarefas") T.render(); revisarAlarmes(); J.avisos.sincronizar(); if (telaAtual === "agenda") A.render(); } });
 
   /* ================= ajustes ================= */
   function interruptor(ligado, aoMudar, rotulo) {
@@ -628,7 +699,7 @@
 
   /* ================= início ================= */
   function iniciar() {
-    pintarVoz(); contador(); G.revisar(); J.avisos.sincronizar();
+    pintarVoz(); contador(); contadorT(); G.revisar(); J.avisos.sincronizar();
     const recentes = historico.slice(-16);
     let ultimoDia = "";
     recentes.forEach((h) => {

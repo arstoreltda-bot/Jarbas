@@ -61,9 +61,9 @@
   /* ---------- lembretes (tocam com o app aberto ou assim que ele é aberto) ---------- */
   function avisados() { return J.store.get("agenda.avisados", {}); }
   function limparAviso(id) { const a = avisados(); Object.keys(a).forEach((k) => { if (k.startsWith(id + "|")) delete a[k]; }); J.store.set("agenda.avisados", a); }
-  A.verificarLembretes = function (avisar) {
+  A.verificarLembretes = function (avisar, fonte) {
     const agora = Date.now(); const a = avisados(); let mudou = false;
-    A.lista().forEach((c) => {
+    (fonte || A.lista()).forEach((c) => {
       if (!A.valido(c)) return;
       const inicio = J.instante(c.data, c.diaInteiro ? "08:00" : c.inicio);
       /* só o aviso mais recente que já chegou a hora (evita vários de uma vez) */
