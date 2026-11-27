@@ -127,7 +127,7 @@
         hora,
         el("div", { class: "item-txt" },
           el("div", { class: "tt" }, c.titulo, el("span", { class: "tag" + (c.calendario === "Trabalho" ? " trab" : ""), text: c.calendario })),
-          el("div", { class: "sub", text: [c.local, J.rotuloLembrete(c.lembrete)].filter(Boolean).join(" · ") }))));
+          el("div", { class: "sub", text: [c.local, J.rotuloAvisos(c)].filter(Boolean).join(" · ") }))));
     });
 
     const proximos = todos.filter((c) => c.data >= hoje).length;

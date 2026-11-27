@@ -2,7 +2,7 @@
 "use strict";
 (function (J) {
   const $ = J.$, el = J.el, V = J.voz, G = J.gemini, A = J.agenda;
-  const VERSAO = "1.1.0";
+  const VERSAO = "1.1.1";
   const chat = $("chat"), entrada = $("entrada"), btnAcao = $("btn-acao");
   const ehIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const instalado = () => window.navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
@@ -78,7 +78,7 @@
     const d = el("div", { class: "det" });
     const add = (ico, txt) => { if (txt) d.append(el("span", { html: ICO[ico] }), el("span", { text: txt })); };
     add("dia", J.rotuloDiaLongo(c.data)); add("hora", c.diaInteiro ? "Dia inteiro" : `${J.fmtH(c.inicio)} até ${J.fmtH(c.fim)}`);
-    add("local", c.local); add("pasta", c.calendario); add("sino", c.lembrete == null ? "" : J.rotuloLembrete(c.lembrete).replace(/^aviso/, "Aviso"));
+    add("local", c.local); add("pasta", c.calendario); add("sino", c.lembrete == null ? "" : J.rotuloAvisos(c).replace(/^aviso/, "Aviso").replace(/^sem/, "Sem"));
     return d;
   }
   function cartao(c, { titulo, perigo, botoes, alerta }) {
@@ -95,7 +95,7 @@
     const p = { tipo: "confirmar", c, id };
     p.cartao = cartao(c, { alerta, botoes: [el("button", { class: "btn", type: "button", text: "Cancelar", onclick: () => recusar() }), el("button", { class: "btn primario", type: "button", text: id ? "Salvar alteração" : "Confirmar", onclick: () => confirmar() })] });
     pendente = p;
-    const lem = c.lembrete == null ? "" : c.lembrete === -1 ? ", sem aviso" : `, com ${J.rotuloLembrete(c.lembrete)}`;
+    const lem = c.lembrete == null ? "" : c.lembrete === -1 ? ", sem aviso" : `, com ${J.rotuloAvisos(c)}`;
     const frase = id ? `Vou alterar para ${c.titulo}, ${J.diaFrase(c.data)}, ${c.diaInteiro ? "o dia inteiro" : "às " + J.fmtH(c.inicio)}${lem}. Confirma, senhor?`
       : `Vou marcar ${c.titulo}, ${J.diaFrase(c.data)}, ${c.diaInteiro ? "o dia inteiro" : "às " + J.fmtH(c.inicio)}${lem}. ${alerta ? alerta + " " : ""}Confirma, senhor?`;
     return dizer(frase).then(() => porVoz && ouvirDeNovo());
@@ -138,6 +138,21 @@
     return dizer(p.tipo === "cancelar" ? "Perfeitamente, senhor. Deixei como estava." : "Tudo bem, senhor, não marquei.");
   }
 
+  /* "daqui a 30 s" e "às 22h50" -> minutos antes do início do compromisso */
+  function avisosExtras(c, daqui, em) {
+    const lista = [];
+    if (!A.valido(c)) return lista;
+    const inicio = J.instante(c.data, c.diaInteiro ? "08:00" : c.inicio), agora = Date.now();
+    (Array.isArray(daqui) ? daqui : daqui != null ? [daqui] : []).map(Number).filter((s) => s > 0).forEach((s) => lista.push((inicio - (agora + s * 1000)) / 60000));
+    (Array.isArray(em) ? em : em ? [em] : []).forEach((t) => { const m = String(t).match(/(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/); if (m) lista.push((inicio - J.instante(m[1], m[2])) / 60000); });
+    return lista.filter((m) => m >= 0).map((m) => Math.round(m * 1000) / 1000);
+  }
+  function juntarAvisos(c, extras) {
+    if (!extras.length) return;
+    const atual = c.lembrete == null || c.lembrete === -1 ? [] : J.listaLembretes(c.lembrete);
+    c.lembrete = A.normalizarLembrete(atual.concat(extras));
+  }
+
   /* ---------- executar a decisão do cérebro ---------- */
   async function executar(r, porVoz) {
     const resp = (r.resposta || "").trim();
@@ -151,6 +166,8 @@
         let c = A.normalizar(Object.assign({}, base || {}, r.compromisso || {}));
         if (c.lembrete == null && base) c.lembrete = base.lembrete;
         if (c.lembrete == null && anterior && anterior.lembrete != null && pendente.tipo === "confirmar") c.lembrete = anterior.lembrete;
+        const rc = r.compromisso || {};
+        juntarAvisos(c, avisosExtras(c, rc.avisosDaqui != null ? rc.avisosDaqui : r.avisosDaqui, rc.avisosEm != null ? rc.avisosEm : r.avisosEm));
         if (!A.valido(c)) { await dizer(resp && r.acao !== "agendar" ? resp : "Perdão, senhor, não peguei o dia ou o horário. Pode repetir?"); return porVoz && ouvirDeNovo(); }
         if (c.lembrete == null) return perguntarLembrete(c, id, porVoz);
         return pedirConfirmacao(c, id, porVoz);
@@ -163,8 +180,10 @@
       case "confirmar": return confirmar();
       case "recusar": return recusar();
       case "lembrete": {
-        const m = A.normalizarLembrete(r.minutos);
         if (!pendente || pendente.tipo !== "lembrete") return dizer(resp || variar(PRONTO, "pronto"));
+        const extras = avisosExtras(pendente.c, r.avisosDaqui, r.avisosEm);
+        let m = A.normalizarLembrete(r.minutos);
+        if (extras.length) m = A.normalizarLembrete((m == null || m === -1 ? [] : m).concat(extras));
         if (m == null) { await dizer("Perdão, senhor. Quanto tempo antes devo lembrá-lo? Por exemplo, 30 minutos antes ou um dia antes."); return porVoz && ouvirDeNovo(); }
         const p = pendente; if (p.chips) p.chips.remove(); p.cartao.remove(); pendente = null;
         p.c.lembrete = m;
@@ -315,7 +334,7 @@
   }
   $("aviso-ok").onclick = () => { $("aviso").hidden = true; avisoAtual = null; };
   const verificar = () => A.verificarLembretes(avisar);
-  setInterval(verificar, 10000);
+  setInterval(verificar, 2000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) { verificar(); contador(); J.avisos.sincronizar(); if (telaAtual === "agenda") A.render(); } });
 
   /* ================= ajustes ================= */

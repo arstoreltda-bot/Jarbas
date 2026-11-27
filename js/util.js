@@ -111,6 +111,23 @@ window.J = window.J || {};
     if (m >= 60) { const h = Math.floor(m / 60), r = Math.round(m % 60); return r ? `aviso ${h}h${String(r).padStart(2, "0")} antes` : `aviso ${h}h antes`; }
     return `aviso ${Math.round(m)} min antes`;
   };
+  /* rótulo dos avisos de um compromisso: "1h antes" ou, se for um horário quebrado, "hoje às 22h45" */
+  J.rotuloAvisos = function (c) {
+    const l = c.lembrete == null ? [60] : c.lembrete === -1 ? [] : J.listaLembretes(c.lembrete);
+    if (!l.length) return "sem aviso";
+    const inicio = J.instante(c.data, c.diaInteiro ? "08:00" : c.inicio);
+    const redondo = (m) => m === 0 || (Number.isInteger(m) && (m < 60 || m % 15 === 0));
+    const partes = l.map((m) => {
+      if (redondo(m)) return J.rotuloLembrete(m).replace(/^aviso /, "");
+      const t = new Date(inicio - m * 60000);
+      const p = new Intl.DateTimeFormat("en-CA", { timeZone: J.TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).formatToParts(t);
+      const g = (k) => p.find((x) => x.type === k).value;
+      const d = `${g("year")}-${g("month")}-${g("day")}`, h = `${g("hour") === "24" ? "00" : g("hour")}:${g("minute")}`;
+      const dia = J.rotuloDia(d).replace(/^(Hoje|Amanhã) · .*/, (x, a) => a.toLowerCase());
+      return `${dia} às ${J.fmtH(h)}${g("second") !== "00" ? ` e ${Number(g("second"))} s` : ""}`;
+    });
+    return (partes.length > 1 ? "avisos " + partes.slice(0, -1).join(", ") + " e " + partes[partes.length - 1] : "aviso " + partes[0]);
+  };
   J.saudacao = () => { const h = Number(J.agora().hora.slice(0, 2)); return h < 5 ? "Boa noite" : h < 12 ? "Bom dia" : h < 18 ? "Boa tarde" : "Boa noite"; };
   J.semAcento = (t) => String(t || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
 })(window.J);

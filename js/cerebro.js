@@ -9,13 +9,13 @@
 Você recebe um CONTEXTO em JSON e a MENSAGEM do Alison, em texto ou em áudio anexo. Se vier áudio, transcreva fielmente o que ele disse em "transcricao". Se o áudio estiver vazio, só com ruído ou incompreensível, use a ação "naoentendi".
 
 Ações possíveis (campo "acao"):
-- "agendar": marcar um compromisso novo. Preencha "compromisso". Converta datas relativas (hoje, amanhã, depois de amanhã, sexta, dia 5, semana que vem, mês que vem) para a data exata AAAA-MM-DD a partir de CONTEXTO.agora. Um dia da semana sem mais detalhes é a próxima ocorrência (hoje, se o horário ainda não passou). Horas em HH:MM 24h ("3 da tarde" = 15:00; "meio-dia" = 12:00; "9 da noite" = 21:00). Sem fim informado, deixe "fim" vazio. "Dia todo" = diaInteiro true. calendario = "Trabalho" para trabalho ou a loja dele, senão "Pessoal". Título curto, com inicial maiúscula, sem data e hora. "lembrete" = LISTA com os minutos de antecedência de cada aviso, em relação ao início do compromisso (ele pode pedir vários: "2 dias antes e 1 hora antes" = [2880, 60]). Use decimais para segundos (30 segundos = 0.5; 1 dia = 1440). Horário exato pedido ("um dia antes às 20h"): calcule os minutos entre esse momento e o início. Pedido relativo a agora ("me avisa daqui a 20 minutos e 15 segundos"): minutos antes = (início do compromisso) − (CONTEXTO.agora + 20 min 15 s), com decimais, usando os segundos de CONTEXTO.agora. [0] = na hora. -1 = ele não quer aviso. Se ele NÃO falou nada sobre aviso ou lembrete, use null. Se faltar o dia ou a hora (e não for dia inteiro), use "perguntar".
+- "agendar": marcar um compromisso novo. Preencha "compromisso". Converta datas relativas (hoje, amanhã, depois de amanhã, sexta, dia 5, semana que vem, mês que vem) para a data exata AAAA-MM-DD a partir de CONTEXTO.agora. Um dia da semana sem mais detalhes é a próxima ocorrência (hoje, se o horário ainda não passou). Horas em HH:MM 24h ("3 da tarde" = 15:00; "meio-dia" = 12:00; "9 da noite" = 21:00). Sem fim informado, deixe "fim" vazio. "Dia todo" = diaInteiro true. calendario = "Trabalho" para trabalho ou a loja dele, senão "Pessoal". Título curto, com inicial maiúscula, sem data e hora. "lembrete" = LISTA com os minutos de antecedência de cada aviso, em relação ao início do compromisso (ele pode pedir vários: "2 dias antes e 1 hora antes" = [2880, 60]). Use decimais para segundos (30 segundos = 0.5; 1 dia = 1440). Horário exato pedido ("um dia antes às 20h"): calcule os minutos entre esse momento e o início. IMPORTANTE: avisos pedidos em relação a AGORA ("me avisa daqui a 30 segundos", "daqui a 20 minutos e 15 segundos", "me notifica agora, hoje, daqui a 2 horas") NÃO entram em "lembrete": coloque o tempo a partir de agora, em SEGUNDOS, na lista "avisosDaqui" (ex.: [30], [1215]). Avisos num horário exato ("me avisa hoje às 22h50", "amanhã às 8h") vão em "avisosEm" como "AAAA-MM-DDTHH:MM". O app calcula o resto. [0] em "lembrete" = na hora do compromisso. -1 = ele não quer aviso. Se ele NÃO falou nada sobre aviso ou lembrete, use null. Se faltar o dia ou a hora (e não for dia inteiro), use "perguntar".
 - "remarcar": alterar um compromisso existente. "id" = id de CONTEXTO.compromissos; "compromisso" = TODOS os campos já com a alteração aplicada.
 - "cancelar": desmarcar um compromisso existente. "id" = id de CONTEXTO.compromissos. Se houver dúvida sobre qual, use "perguntar".
 - "listar": ele quer saber o que tem marcado. Em "resposta", diga os compromissos do período pedido, um por linha, no formato "Sexta, 27/11, às 15h: Dentista". Se não houver nada, diga isso com leveza.
 - "perguntar": falta informação essencial. Pergunta curta em "resposta".
 - "confirmar" / "recusar": SOMENTE quando CONTEXTO.pendente existir e for uma confirmação; ele aceitou (sim, pode, confirma, isso, manda ver) ou recusou (não, deixa, cancela).
-- "lembrete": SOMENTE quando CONTEXTO.pendente.tipo for "lembrete" e ele responder quanto tempo antes quer o aviso. Preencha "minutos" como em "lembrete" acima (lista de minutos, ou -1).
+- "lembrete": SOMENTE quando CONTEXTO.pendente.tipo for "lembrete" e ele responder quanto tempo antes quer o aviso. Preencha "minutos" como em "lembrete" acima (lista de minutos antes do compromisso, ou -1) e, se ele falar em "daqui a..." ou num horário exato, use "avisosDaqui" / "avisosEm" como explicado acima.
 - "conversa": qualquer outra coisa. Se ele só chamar seu nome ou cumprimentar, responda numa frase curta e elegante como "Sim, senhor. Estou pronto." ou "Às suas ordens, senhor.", variando. Perguntas gerais: responda de forma breve e útil.
 - "naoentendi": áudio vazio ou incompreensível.
 
@@ -23,7 +23,7 @@ Se CONTEXTO.pendente existir e ele pedir uma mudança no que está pendente (out
 Em "resposta", para agendar e remarcar, escreva uma frase curta de confirmação; o app mostra os detalhes.${J.financas && J.financas.ativo ? "\n" + J.financas.instrucoes() : ""}
 
 Responda SOMENTE com JSON neste formato:
-{"transcricao":"","acao":"","compromisso":{"titulo":"","data":"AAAA-MM-DD","inicio":"HH:MM","fim":"","diaInteiro":false,"local":"","calendario":"Pessoal","lembrete":null},"id":"","minutos":null,"resposta":""}`;
+{"transcricao":"","acao":"","compromisso":{"titulo":"","data":"AAAA-MM-DD","inicio":"HH:MM","fim":"","diaInteiro":false,"local":"","calendario":"Pessoal","lembrete":null,"avisosDaqui":[],"avisosEm":[]},"id":"","minutos":null,"avisosDaqui":[],"avisosEm":[],"resposta":""}`;
   }
 
   function contexto(pendente, historico) {
@@ -70,7 +70,8 @@ Responda SOMENTE com JSON neste formato:
   C.local = function (texto, pendente) {
     const t = J.semAcento(texto).trim();
     if (pendente) {
-      if (pendente.tipo === "lembrete") { const resposta = /antes|na hora|no horario|sem (lembrete|aviso)|nao (precisa|quero)|vespera|dia anterior|nenhum/.test(t) || t.split(/\s+/).length <= 3; const m = resposta && !/\b(agend|marc|anot|desmarc|muda|troca)/.test(t) ? C.lerLembrete(texto) : null; if (m !== null) return { acao: "lembrete", minutos: m }; }
+      if (pendente.tipo === "lembrete" && /\bdaqui\b/.test(t)) { const m = C.lerLembrete(texto.replace(/daqui( a)?/i, "")); if (m !== null && m > 0) return { acao: "lembrete", minutos: null, avisosDaqui: [Math.round(m * 60)] }; }
+      if (pendente.tipo === "lembrete" && !/\bdaqui\b/.test(t)) { const resposta = /antes|na hora|no horario|sem (lembrete|aviso)|nao (precisa|quero)|vespera|dia anterior|nenhum/.test(t) || t.split(/\s+/).length <= 3; const m = resposta && !/\b(agend|marc|anot|desmarc|muda|troca)/.test(t) ? C.lerLembrete(texto) : null; if (m !== null) return { acao: "lembrete", minutos: m }; }
       else {
         if (/^(sim|pode|confirma|confirmo|isso|ok|certo|claro|manda|perfeito|com certeza)\b/.test(t)) return { acao: "confirmar" };
         if (/^(nao|deixa|cancela|esquece|negativo)\b/.test(t)) return { acao: "recusar" };
